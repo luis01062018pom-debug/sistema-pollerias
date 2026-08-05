@@ -2,6 +2,7 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const { one } = require('../db');
 const { firmar, requiereAuth } = require('../auth');
+const { estadoSuscripcion, mensajeSuscripcion } = require('../suscripcion');
 
 const router = express.Router();
 
@@ -30,14 +31,26 @@ router.get('/bootstrap', requiereAuth, async (req, res) => {
   try {
     let negocio = null;
     let piezas = [];
+    let suscripcion = null;
     if (req.user.negocio_id) {
       negocio = await one(
         `SELECT id, codigo, nombre, logo, color_primario, color_secundario, ticket_direccion,
                 ticket_telefono, ticket_leyenda, whatsapp, peso_promedio_g,
-                costo_kilo::float8 AS costo_kilo, flags, activo
+                costo_kilo::float8 AS costo_kilo, flags, activo,
+                estado, fecha_corte, dias_gracia, precio_mensual::float8 AS precio_mensual
          FROM negocios WHERE id = $1`, [req.user.negocio_id]);
       if (!negocio || !negocio.activo) return res.status(403).json({ error: 'Negocio suspendido' });
       negocio.flags = JSON.parse(negocio.flags || '{}');
+
+      // La app necesita saber cómo va la cuenta para avisar (y para mostrar
+      // la pantalla de pago en lugar del punto de venta si ya se suspendió).
+      const situacion = estadoSuscripcion(negocio);
+      suscripcion = {
+        ...situacion,
+        aviso: mensajeSuscripcion(situacion),
+        precio_mensual: Number(negocio.precio_mensual),
+        fecha_corte: negocio.fecha_corte,
+      };
       const { rows } = require('../db');
       piezas = await rows(
         `SELECT id, nombre, por_pollo::float8 AS por_pollo, rendimiento::float8 AS rendimiento,
@@ -46,7 +59,7 @@ router.get('/bootstrap', requiereAuth, async (req, res) => {
          FROM piezas WHERE negocio_id = $1 AND activo = TRUE ORDER BY orden, nombre`,
         [req.user.negocio_id]);
     }
-    res.json({ user: { nombre: req.user.nombre, rol: req.user.rol }, negocio, piezas });
+    res.json({ user: { nombre: req.user.nombre, rol: req.user.rol }, negocio, piezas, suscripcion });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'Error del servidor' });

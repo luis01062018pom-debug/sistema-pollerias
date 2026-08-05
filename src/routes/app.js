@@ -2,6 +2,7 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const { query, one, rows } = require('../db');
 const { requiereAuth, requiereRol } = require('../auth');
+const { estadoSuscripcion, mensajeSuscripcion, SUSPENDIDOS, SOLO_VENTA } = require('../suscripcion');
 
 const router = express.Router();
 router.use(requiereAuth);
@@ -14,6 +15,40 @@ function negocioId(req, res) {
   }
   return req.user.negocio_id;
 }
+
+/**
+ * Cobranza escalonada. Lo que se bloquea por falta de pago es la
+ * administración (reportes, inventario, precios, empleados), NUNCA la venta:
+ * que una pollería no pueda cobrarle a su cliente por culpa nuestra se
+ * comenta en el pueblo. Solo cuando ya pasaron los días de gracia y la
+ * semana de aviso se suspende todo, y ahí el único camino es subir el pago
+ * (esa ruta vive en /api/suscripcion y no pasa por aquí).
+ */
+const RUTAS_DE_VENTA = [/^\/ventas/, /^\/corte/, /^\/compras/];
+
+router.use(async (req, res, next) => {
+  try {
+    if (!req.user.negocio_id) return next();
+    const n = await one(
+      'SELECT estado, fecha_corte, dias_gracia FROM negocios WHERE id = $1',
+      [req.user.negocio_id]);
+    const situacion = estadoSuscripcion(n);
+    req.suscripcion = situacion;
+
+    const esVenta = RUTAS_DE_VENTA.some((r) => r.test(req.path));
+    if (SUSPENDIDOS.includes(situacion.estado)
+        || (SOLO_VENTA.includes(situacion.estado) && !esVenta)) {
+      return res.status(402).json({
+        error: mensajeSuscripcion(situacion),
+        suscripcion: situacion,
+      });
+    }
+    next();
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Error del servidor' });
+  }
+});
 
 /* ============ PIEZAS / CATÁLOGO ============ */
 

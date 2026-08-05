@@ -104,3 +104,54 @@ CREATE TABLE IF NOT EXISTS cortes (
   creado_en TIMESTAMPTZ DEFAULT now(),
   UNIQUE (negocio_id, fecha)
 );
+
+/* =====================================================================
+   SUSCRIPCIÓN (el negocio de nosotros, no el de la pollería)
+   Cada negocio paga una renta mensual. El estado NO se guarda: se calcula
+   de `fecha_corte` cada vez que se consulta (ver src/suscripcion.js), así
+   no puede quedar desincronizado por un proceso nocturno que no corrió.
+   La columna `estado` solo guarda lo que decidimos a mano: PRUEBA y CANCELADA.
+   ===================================================================== */
+ALTER TABLE negocios ADD COLUMN IF NOT EXISTS estado TEXT NOT NULL DEFAULT 'PRUEBA';
+ALTER TABLE negocios ADD COLUMN IF NOT EXISTS fecha_corte DATE;
+ALTER TABLE negocios ADD COLUMN IF NOT EXISTS dias_gracia INTEGER NOT NULL DEFAULT 5;
+ALTER TABLE negocios ADD COLUMN IF NOT EXISTS precio_mensual NUMERIC NOT NULL DEFAULT 0;
+ALTER TABLE negocios ADD COLUMN IF NOT EXISTS contacto_nombre TEXT;
+ALTER TABLE negocios ADD COLUMN IF NOT EXISTS whatsapp_contacto TEXT;
+ALTER TABLE negocios ADD COLUMN IF NOT EXISTS notas_internas TEXT;
+
+/* La foto del comprobante se guarda en la base (bytea), NO en disco: el
+   disco de Railway es efímero y se borraría en el siguiente despliegue. */
+CREATE TABLE IF NOT EXISTS pagos_suscripcion (
+  id SERIAL PRIMARY KEY,
+  negocio_id INTEGER NOT NULL REFERENCES negocios(id),
+  monto NUMERIC NOT NULL,
+  metodo TEXT NOT NULL DEFAULT 'transferencia',
+  referencia TEXT,
+  comprobante_bytes BYTEA,
+  comprobante_mime TEXT,
+  estado TEXT NOT NULL DEFAULT 'PENDIENTE',
+  periodo_inicio DATE,
+  periodo_fin DATE,
+  motivo_rechazo TEXT,
+  subido_por INTEGER REFERENCES usuarios(id),
+  validado_por INTEGER REFERENCES usuarios(id),
+  validado_en TIMESTAMPTZ,
+  creado_en TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS contabilidad_saas (
+  id SERIAL PRIMARY KEY,
+  negocio_id INTEGER REFERENCES negocios(id),
+  pago_id INTEGER REFERENCES pagos_suscripcion(id),
+  concepto TEXT NOT NULL,
+  tipo TEXT NOT NULL,
+  monto NUMERIC NOT NULL,
+  fecha DATE NOT NULL DEFAULT CURRENT_DATE,
+  nota TEXT,
+  registrado_por INTEGER REFERENCES usuarios(id),
+  creado_en TIMESTAMPTZ DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_pagos_negocio ON pagos_suscripcion (negocio_id, creado_en DESC);
+CREATE INDEX IF NOT EXISTS idx_pagos_estado ON pagos_suscripcion (estado);

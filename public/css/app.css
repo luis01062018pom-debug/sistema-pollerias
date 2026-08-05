@@ -179,3 +179,30 @@ tr.alerta td { color: var(--error); font-weight: 700; }
 .switch-linea input[type=checkbox] { width: auto; transform: scale(1.4); }
 
 .lista-simple > div { padding: .55rem 0; border-bottom: 1px solid var(--borde); display: flex; justify-content: space-between; align-items: center; }
+
+/* ===== Suscripción (renta mensual) ===== */
+.cinta {
+  background: #e7f0f6; color: #14384f; padding: .55rem 1rem;
+  display: flex; align-items: center; gap: .7rem; font-size: .85rem;
+  border-bottom: 1px solid #cfe0ea;
+}
+.cinta.urgente { background: #fdf0d5; color: #6b4708; border-bottom-color: #f0d9a8; }
+.cinta span { flex: 1; }
+.cinta button {
+  background: var(--primario); color: #fff; border: none; border-radius: 8px;
+  padding: .35rem .7rem; font-weight: 700; font-size: .78rem; cursor: pointer; flex-shrink: 0;
+}
+.etiqueta {
+  display: inline-block; color: #fff; font-size: .68rem; font-weight: 800;
+  letter-spacing: .04em; padding: .18rem .5rem; border-radius: 99px; vertical-align: middle;
+}
+.etiqueta.chica { font-size: .62rem; padding: .12rem .45rem; margin-right: .3rem; }
+.estado-grande { display: flex; align-items: center; gap: .7rem; }
+.comprobante {
+  width: 100%; max-height: 320px; object-fit: contain; margin-top: .7rem;
+  border: 1px solid var(--borde); border-radius: 10px; background: #faf9f7; cursor: zoom-in;
+}
+select {
+  width: 100%; padding: .7rem; border: 1.5px solid var(--borde); border-radius: 10px;
+  font-size: 1rem; background: #fff; color: var(--texto);
+}

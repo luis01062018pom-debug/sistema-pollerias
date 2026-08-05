@@ -13,11 +13,15 @@ const ICONOS = {
   buscar: '<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
   enviar: '<line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>',
   pluma: '<path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5z"/><line x1="16" y1="8" x2="2" y2="22"/><line x1="17.5" y1="15" x2="9" y2="15"/>',
-  offline: '<line x1="1" y1="1" x2="23" y2="23"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/><path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/><path d="M10.71 5.05A16 16 0 0 1 22.58 9"/><path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/>'
+  offline: '<line x1="1" y1="1" x2="23" y2="23"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/><path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/><path d="M10.71 5.05A16 16 0 0 1 22.58 9"/><path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/>',
+  cuenta: '<rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/>',
+  pagos: '<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>',
+  dinero: '<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
+  usuarios: '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>'
 };
 
 const App = {
-  state: { user: null, negocio: null, piezas: [], vista: 'vender', carrito: [], filtroPos: '' },
+  state: { user: null, negocio: null, piezas: [], vista: 'vender', carrito: [], filtroPos: '', suscripcion: null },
 
   ico(nombre, clase) {
     return `<svg class="ico ${clase || ''}" viewBox="0 0 24 24" aria-hidden="true">${ICONOS[nombre] || ''}</svg>`;
@@ -65,8 +69,12 @@ const App = {
       this.state.user = boot.user;
       this.state.negocio = boot.negocio;
       this.state.piezas = boot.piezas || [];
+      this.state.suscripcion = boot.suscripcion || null;
       this.aplicarMarca();
-      this.state.vista = boot.user.rol === 'superadmin' ? 'admin' : 'vender';
+      // Si el servicio está suspendido por falta de pago, lo único que se
+      // puede hacer es subir el comprobante: se entra directo a esa pantalla.
+      this.state.vista = boot.user.rol === 'superadmin' ? 'admin'
+        : (this.suspendido() ? 'cuenta' : 'vender');
       this.pintar();
       API.sincronizar();
     } catch (e) {
@@ -126,18 +134,26 @@ const App = {
   },
 
   /* ===== Cascarón (topbar + nav) ===== */
+  /* ¿La renta está tan vencida que ya se suspendió el servicio? */
+  suspendido() {
+    const s = this.state.suscripcion;
+    return !!s && ['SUSPENDIDA', 'CANCELADA'].includes(s.estado);
+  },
+
   pintar() {
     const n = this.state.negocio;
     const esAdmin = this.state.user.rol === 'superadmin';
     const tabs = esAdmin
-      ? [['admin', 'Negocios']]
-      : [
-          ['vender', 'Vender'],
-          ['compras', 'Compras'],
-          ...(this.flag('inventario') ? [['inventario', 'Inventario']] : []),
-          ['corte', 'Corte'],
-          ['mas', 'Más']
-        ];
+      ? [['admin', 'Negocios'], ['pagos', 'Pagos'], ['dinero', 'Dinero']]
+      : this.suspendido()
+        ? [['cuenta', 'Mi cuenta']]
+        : [
+            ['vender', 'Vender'],
+            ['compras', 'Compras'],
+            ...(this.flag('inventario') ? [['inventario', 'Inventario']] : []),
+            ['corte', 'Corte'],
+            ['mas', 'Más']
+          ];
     document.getElementById('app').innerHTML = `
       <div class="topbar">
         ${n && n.logo ? `<img class="logo" src="${n.logo}">` : this.ico('pluma', 'g')}
@@ -146,6 +162,7 @@ const App = {
         <div class="usuario">${this.esc(this.state.user.nombre)}<br>
           <a href="#" style="color:#fff;opacity:.85" onclick="App.salir();return false">salir</a></div>
       </div>
+      ${this.avisoSuscripcion()}
       <div class="contenido" id="vista"></div>
       <div class="navbar">
         ${tabs.map(([id, txt]) =>
@@ -154,6 +171,18 @@ const App = {
       </div>`;
     this.pintarEstadoRed();
     this.pintarVista();
+  },
+
+  /* Cinta de aviso de cobranza. Solo aparece cuando hay algo que decir, y
+     siempre con el botón que resuelve el problema, no solo el regaño. */
+  avisoSuscripcion() {
+    const s = this.state.suscripcion;
+    if (!s || !s.aviso || this.state.user.rol === 'superadmin') return '';
+    const urgente = ['GRACIA', 'RESTRINGIDA', 'SUSPENDIDA', 'CANCELADA'].includes(s.estado);
+    return `<div class="cinta ${urgente ? 'urgente' : ''}">
+        <span>${this.esc(s.aviso)}</span>
+        <button onclick="App.ir('cuenta')">Ver mi cuenta</button>
+      </div>`;
   },
 
   pintarEstadoRed() {
@@ -175,7 +204,8 @@ const App = {
     const fn = {
       vender: this.vistaVender, compras: this.vistaCompras, inventario: this.vistaInventario,
       corte: this.vistaCorte, mas: this.vistaMas, reportes: this.vistaReportes,
-      config: this.vistaConfig, admin: this.vistaAdmin
+      config: this.vistaConfig, admin: this.vistaAdmin, cuenta: this.vistaCuenta,
+      pagos: this.vistaPagos, dinero: this.vistaDinero
     }[v];
     if (fn) fn.call(this);
   },
@@ -532,6 +562,7 @@ const App = {
       <div class="tarjeta lista-simple">
         ${this.flag('reportes') ? `<div onclick="App.ir('reportes')" style="cursor:pointer"><span>${this.ico('reportes')} Reportes</span><span>›</span></div>` : ''}
         ${esDueno ? `<div onclick="App.ir('config')" style="cursor:pointer"><span>${this.ico('config')} Configuración del negocio</span><span>›</span></div>` : ''}
+        ${esDueno ? `<div onclick="App.ir('cuenta')" style="cursor:pointer"><span>${this.ico('cuenta')} Mi cuenta y pagos</span><span>›</span></div>` : ''}
         <div onclick="App.salir()" style="cursor:pointer"><span>${this.ico('salir')} Cerrar sesión</span><span>›</span></div>
       </div>
       <p class="suave centrado">Versión 1.1</p>`;
@@ -674,14 +705,127 @@ const App = {
   },
 
   /* =========================================================
-     ADMIN (superadmin)
+     MI CUENTA (dueño de la pollería): estado de la renta y pagos
+     ========================================================= */
+  async vistaCuenta() {
+    this.$('#vista').innerHTML = `<h2>${this.ico('cuenta')} Mi cuenta</h2><div id="cu-cont">Cargando…</div>`;
+    try {
+      const c = await API.get('/suscripcion');
+      this.state.suscripcion = { ...c };
+      const badge = this.badgeEstado(c.estado);
+      this.$('#cu-cont').innerHTML = `
+        <div class="tarjeta">
+          <div class="estado-grande">
+            <span class="etiqueta" style="background:${badge.color}">${badge.texto}</span>
+            ${c.dias !== null && c.dias !== undefined ? `<span class="suave">${c.dias >= 0
+                ? `${c.dias} día(s) por delante` : `vencida hace ${-c.dias} día(s)`}</span>` : ''}
+          </div>
+          <p style="margin-top:.6rem">${this.esc(c.aviso || 'Tu servicio está al corriente. ¡Gracias!')}</p>
+          <div class="stats" style="margin-top:.8rem">
+            <div class="stat"><div class="v">${this.dinero(c.precio_mensual)}</div><div class="l">Renta mensual</div></div>
+            <div class="stat"><div class="v">${c.fecha_corte ? String(c.fecha_corte).slice(0, 10) : '—'}</div><div class="l">Próximo corte</div></div>
+          </div>
+        </div>
+        <div class="tarjeta">
+          <h3>Ya pagué: subir mi comprobante</h3>
+          <p class="suave">Toma la foto de tu transferencia o ficha de depósito. En cuanto la revisemos se activa tu mes.</p>
+          <div class="fila">
+            <div><label>¿Cuánto pagaste?</label>
+              <input id="cu-monto" type="number" step="0.01" inputmode="decimal" value="${c.precio_mensual || ''}"></div>
+            <div><label>¿Cómo pagaste?</label>
+              <select id="cu-metodo">
+                <option value="transferencia">Transferencia</option>
+                <option value="deposito">Depósito</option>
+                <option value="efectivo">Efectivo</option>
+              </select></div>
+          </div>
+          <label>Referencia o folio (opcional)</label>
+          <input id="cu-ref" placeholder="Últimos dígitos, folio, etc.">
+          <label>Foto del comprobante</label>
+          <input id="cu-foto" type="file" accept="image/*" capture="environment">
+          <button class="btn" id="cu-enviar" onclick="App.enviarComprobante()">Enviar comprobante</button>
+          <div id="cu-msg"></div>
+        </div>
+        <div class="tarjeta tabla-scroll">
+          <h3>Mis pagos</h3>
+          ${c.pagos.length ? `<table><tr><th>Fecha</th><th class="num">Monto</th><th>Estado</th></tr>
+            ${c.pagos.map(p => `<tr>
+              <td>${new Date(p.creado_en).toLocaleDateString('es-MX')}</td>
+              <td class="num">${this.dinero(p.monto)}</td>
+              <td>${this.esc(p.estado === 'PENDIENTE' ? 'En revisión' : p.estado.toLowerCase())}
+                  ${p.motivo_rechazo ? `<br><span class="suave">${this.esc(p.motivo_rechazo)}</span>` : ''}</td>
+            </tr>`).join('')}</table>`
+            : '<p class="suave">Todavía no has subido ningún pago.</p>'}
+        </div>`;
+    } catch (e) {
+      this.$('#cu-cont').innerHTML = `<div class="msg-error">${this.esc(e.message)}</div>`;
+    }
+  },
+
+  badgeEstado(estado) {
+    return {
+      PRUEBA:      { texto: 'MES DE PRUEBA', color: '#0b7285' },
+      ACTIVA:      { texto: 'AL CORRIENTE',  color: 'var(--ok)' },
+      CORTESIA:    { texto: 'CORTESÍA',      color: '#0b7285' },
+      GRACIA:      { texto: 'PAGO PENDIENTE', color: '#b8860b' },
+      RESTRINGIDA: { texto: 'RESTRINGIDA',   color: '#c2410c' },
+      SUSPENDIDA:  { texto: 'SUSPENDIDA',    color: 'var(--error)' },
+      CANCELADA:   { texto: 'CANCELADA',     color: 'var(--error)' }
+    }[estado] || { texto: estado, color: 'var(--texto-suave)' };
+  },
+
+  /* La foto se encoge en el teléfono antes de subirla: una foto de cámara
+     pesa 4 MB y con 1200 px se lee perfecto el comprobante. */
+  async _comprimirFoto(file, maxLado = 1200, calidad = 0.72) {
+    const dataURL = await new Promise(res => {
+      const fr = new FileReader();
+      fr.onload = () => res(fr.result);
+      fr.readAsDataURL(file);
+    });
+    const img = await new Promise((res, rej) => {
+      const i = new Image();
+      i.onload = () => res(i);
+      i.onerror = rej;
+      i.src = dataURL;
+    });
+    const escala = Math.min(1, maxLado / Math.max(img.width, img.height));
+    const cv = document.createElement('canvas');
+    cv.width = Math.round(img.width * escala);
+    cv.height = Math.round(img.height * escala);
+    cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+    return cv.toDataURL('image/jpeg', calidad);
+  },
+
+  async enviarComprobante() {
+    const btn = this.$('#cu-enviar');
+    const file = this.$('#cu-foto').files[0];
+    this.$('#cu-msg').innerHTML = '';
+    btn.disabled = true;
+    try {
+      const body = {
+        monto: parseFloat(this.$('#cu-monto').value),
+        metodo: this.$('#cu-metodo').value,
+        referencia: this.$('#cu-ref').value
+      };
+      if (file) body.imagen = await this._comprimirFoto(file);
+      const r = await API.post('/suscripcion/comprobante', body);
+      this.avisar(r.mensaje);
+      this.vistaCuenta();
+    } catch (e) {
+      btn.disabled = false;
+      this.$('#cu-msg').innerHTML = `<div class="msg-error">${this.esc(e.message)}</div>`;
+    }
+  },
+
+  /* =========================================================
+     ADMIN (superadmin): negocios, renta y usuarios
      ========================================================= */
   async vistaAdmin() {
     this.$('#vista').innerHTML = `
       <h2>${this.ico('admin')} Negocios</h2>
       <div class="tarjeta" id="ad-lista">Cargando…</div>
       <div class="tarjeta">
-        <h3>+ Dar de alta un negocio</h3>
+        <h3>+ Dar de alta una pollería</h3>
         <div class="fila">
           <div><label>Código (corto, único)</label><input id="ad-codigo" placeholder="POLLERIA1" autocapitalize="characters"></div>
           <div><label>Nombre del negocio</label><input id="ad-nombre" placeholder="Pollería Doña Mary"></div>
@@ -691,6 +835,11 @@ const App = {
           <div><label>Usuario del dueño</label><input id="ad-dusuario" autocapitalize="none"></div>
           <div><label>Contraseña</label><input id="ad-dpass"></div>
         </div>
+        <div class="fila">
+          <div><label>Renta mensual</label><input id="ad-precio" type="number" step="1" value="150"></div>
+          <div><label>Días de prueba gratis</label><input id="ad-prueba" type="number" step="1" value="30"></div>
+        </div>
+        <label>WhatsApp de contacto</label><input id="ad-wa" placeholder="521...">
         <button class="btn" onclick="App.crearNegocio()">Crear negocio (con catálogo base de pollería)</button>
         <div id="ad-msg"></div>
       </div>`;
@@ -701,15 +850,24 @@ const App = {
     try {
       const lista = await API.get('/admin/negocios');
       this._negocios = lista;
-      this.$('#ad-lista').innerHTML = lista.length ? lista.map(n => `
+      this.$('#ad-lista').innerHTML = lista.length ? lista.map(n => {
+        const b = this.badgeEstado(n.situacion.estado);
+        return `
         <div class="negocio-fila">
-          <span class="punto" style="background:${n.activo ? 'var(--ok)' : 'var(--error)'}"></span>
+          <span class="punto" style="background:${n.activo ? b.color : 'var(--error)'}"></span>
           <div class="info">
             <div class="n">${this.esc(n.nombre)} <span class="suave">(${this.esc(n.codigo)})</span></div>
-            <div class="suave">${n.usuarios} usuario(s) · ${n.ventas_hoy} venta(s) hoy</div>
+            <div class="suave">
+              <span class="etiqueta chica" style="background:${b.color}">${b.texto}</span>
+              ${n.precio_mensual > 0 ? this.dinero(n.precio_mensual) + '/mes · ' : 'sin cobro · '}
+              ${n.fecha_corte ? 'corte ' + String(n.fecha_corte).slice(0, 10) : 'sin fecha de corte'}
+            </div>
+            <div class="suave">${n.usuarios} usuario(s) · ${n.ventas_hoy} venta(s) hoy ·
+              ${this.dinero(n.vendido_mes)} este mes
+              ${n.pagos_pendientes > 0 ? ` · <b style="color:#b8860b">${n.pagos_pendientes} comprobante(s) por revisar</b>` : ''}</div>
           </div>
           <button class="btn chico secundario" onclick="App.editarNegocio(${n.id})">Gestionar</button>
-        </div>`).join('') : '<p class="suave">Sin negocios todavía.</p>';
+        </div>`; }).join('') : '<p class="suave">Sin negocios todavía.</p>';
     } catch (e) { this.$('#ad-lista').innerHTML = `<div class="msg-error">${this.esc(e.message)}</div>`; }
   },
 
@@ -717,10 +875,41 @@ const App = {
     const n = this._negocios.find(x => x.id === id);
     if (!n) return;
     const FLAGS = [['inventario', 'Inventario'], ['reportes', 'Reportes'], ['whatsapp', 'Ticket por WhatsApp']];
+    const b = this.badgeEstado(n.situacion.estado);
     this.modal(`
-      <h3>${this.esc(n.nombre)}</h3>
-      <div class="switch-linea"><span><b>Negocio activo</b> (apagar = suspender acceso)</span>
-        <input type="checkbox" id="ng-activo" ${n.activo ? 'checked' : ''}></div>
+      <h3>${this.esc(n.nombre)}
+        <span class="etiqueta chica" style="background:${b.color}">${b.texto}</span></h3>
+
+      <h3>Renta mensual</h3>
+      <div class="fila">
+        <div><label>Precio al mes</label>
+          <input id="ng-precio" type="number" step="1" value="${n.precio_mensual || 0}"></div>
+        <div><label>Próximo corte</label>
+          <input id="ng-corte" type="date" value="${n.fecha_corte ? String(n.fecha_corte).slice(0, 10) : ''}"></div>
+      </div>
+      <div class="fila">
+        <div><label>Estado</label>
+          <select id="ng-estado">
+            ${['PRUEBA', 'ACTIVA', 'CANCELADA'].map(e =>
+              `<option value="${e}" ${n.estado === e ? 'selected' : ''}>${e}</option>`).join('')}
+          </select></div>
+        <div><label>Días de gracia</label>
+          <input id="ng-gracia" type="number" step="1" value="${n.dias_gracia ?? 5}"></div>
+      </div>
+      <div class="fila">
+        <div><label>Contacto</label><input id="ng-contacto" value="${this.esc(n.contacto_nombre || '')}"></div>
+        <div><label>WhatsApp</label><input id="ng-wa" value="${this.esc(n.whatsapp_contacto || '')}"></div>
+      </div>
+      <label>Notas internas (no las ve el cliente)</label>
+      <input id="ng-notas" value="${this.esc(n.notas_internas || '')}">
+
+      <h3>Registrar un cobro (efectivo)</h3>
+      <div class="fila">
+        <div><label>Monto</label><input id="cb-monto" type="number" step="0.01" value="${n.precio_mensual || 0}"></div>
+        <div><label>Meses</label><input id="cb-meses" type="number" step="1" value="1"></div>
+      </div>
+      <button class="btn chico" style="margin-top:.6rem" onclick="App.cobrarManual(${n.id})">Cobrar y sumar el mes</button>
+
       <h3>Personalización</h3>
       <label>Nombre del negocio</label>
       <input id="ng-nombre" value="${this.esc(n.nombre)}">
@@ -730,18 +919,74 @@ const App = {
       </div>
       <label>Logo (imagen cuadrada, máx. 400 KB)</label>
       <input id="ng-logo" type="file" accept="image/*">
+      <div class="switch-linea"><span><b>Negocio activo</b> (apagar = cerrarle el acceso a mano)</span>
+        <input type="checkbox" id="ng-activo" ${n.activo ? 'checked' : ''}></div>
       <h3>Funciones habilitadas</h3>
       ${FLAGS.map(([k, txt]) => `
         <div class="switch-linea"><span>${txt}</span>
           <input type="checkbox" id="fl-${k}" ${n.flags[k] !== false ? 'checked' : ''}></div>`).join('')}
-      <button class="btn" onclick="App.guardarNegocio(${n.id})">Guardar</button>
-      <h3>Restablecer contraseña de un usuario</h3>
+      <button class="btn" onclick="App.guardarNegocio(${n.id})">Guardar cambios</button>
+
+      <h3>${this.ico('usuarios')} Usuarios de este negocio</h3>
+      <div id="ng-usuarios" class="lista-simple">Cargando…</div>
+      <div class="fila" style="margin-top:.7rem">
+        <input id="nu-nombre" placeholder="Nombre">
+        <input id="nu-usuario" placeholder="usuario" autocapitalize="none">
+      </div>
+      <div class="fila" style="margin-top:.6rem">
+        <input id="nu-pass" placeholder="contraseña">
+        <select id="nu-rol"><option value="empleado">Empleado</option><option value="dueno">Dueño</option></select>
+      </div>
+      <button class="btn chico secundario" style="margin-top:.6rem" onclick="App.crearUsuarioNegocio(${n.id})">+ Agregar usuario</button>
+
+      <h3>Restablecer contraseña</h3>
       <div class="fila">
         <input id="rp-usuario" placeholder="usuario">
         <input id="rp-pass" placeholder="nueva contraseña">
       </div>
       <button class="btn chico secundario" style="margin-top:.6rem" onclick="App.resetPass(${n.id})">Restablecer</button>
       <div id="ng-msg"></div>`);
+    this.cargarUsuariosNegocio(id);
+  },
+
+  async cargarUsuariosNegocio(id) {
+    try {
+      const us = await API.get(`/admin/negocios/${id}/usuarios`);
+      const el = this.$('#ng-usuarios');
+      if (!el) return;
+      el.innerHTML = us.length ? us.map(u =>
+        `<div><span>${this.esc(u.nombre)} <span class="suave">(${this.esc(u.usuario)} · ${u.rol})</span></span>
+           <span class="suave">${u.activo ? '' : 'inactivo'}</span></div>`).join('')
+        : '<p class="suave">Sin usuarios.</p>';
+    } catch (e) { /* el modal pudo cerrarse */ }
+  },
+
+  async crearUsuarioNegocio(id) {
+    try {
+      await API.post(`/admin/negocios/${id}/usuarios`, {
+        nombre: this.$('#nu-nombre').value,
+        usuario: this.$('#nu-usuario').value,
+        password: this.$('#nu-pass').value,
+        rol: this.$('#nu-rol').value
+      });
+      this.avisar('Usuario creado');
+      this.$('#nu-nombre').value = ''; this.$('#nu-usuario').value = ''; this.$('#nu-pass').value = '';
+      this.cargarUsuariosNegocio(id);
+    } catch (e) { this.$('#ng-msg').innerHTML = `<div class="msg-error">${this.esc(e.message)}</div>`; }
+  },
+
+  async cobrarManual(id) {
+    try {
+      const r = await API.post('/admin/pagos/manual', {
+        negocio_id: id,
+        monto: parseFloat(this.$('#cb-monto').value),
+        meses: parseInt(this.$('#cb-meses').value, 10) || 1,
+        metodo: 'efectivo'
+      });
+      this.avisar(`Cobrado. ${r.negocio} corta ahora el ${r.nueva_fecha_corte}`);
+      this.cerrarModal();
+      this.cargarNegocios();
+    } catch (e) { this.$('#ng-msg').innerHTML = `<div class="msg-error">${this.esc(e.message)}</div>`; }
   },
 
   async guardarNegocio(id) {
@@ -752,7 +997,14 @@ const App = {
       flags,
       nombre: this.$('#ng-nombre').value || null,
       color_primario: this.$('#ng-color1').value,
-      color_secundario: this.$('#ng-color2').value
+      color_secundario: this.$('#ng-color2').value,
+      precio_mensual: parseFloat(this.$('#ng-precio').value) || 0,
+      estado: this.$('#ng-estado').value,
+      fecha_corte: this.$('#ng-corte').value || null,
+      dias_gracia: parseInt(this.$('#ng-gracia').value, 10) || 0,
+      contacto_nombre: this.$('#ng-contacto').value,
+      whatsapp_contacto: this.$('#ng-wa').value,
+      notas_internas: this.$('#ng-notas').value
     };
     const file = this.$('#ng-logo').files[0];
     if (file) {
@@ -787,11 +1039,148 @@ const App = {
         nombre: this.$('#ad-nombre').value,
         dueno_nombre: this.$('#ad-dnombre').value,
         dueno_usuario: this.$('#ad-dusuario').value,
-        dueno_password: this.$('#ad-dpass').value
+        dueno_password: this.$('#ad-dpass').value,
+        precio_mensual: parseFloat(this.$('#ad-precio').value) || 0,
+        dias_prueba: parseInt(this.$('#ad-prueba').value, 10) || 0,
+        whatsapp_contacto: this.$('#ad-wa').value
       });
-      this.avisar('Negocio creado con su catálogo base');
+      this.avisar('Negocio creado con su catálogo base y su mes de prueba');
       this.vistaAdmin();
     } catch (e) { this.$('#ad-msg').innerHTML = `<div class="msg-error">${this.esc(e.message)}</div>`; }
+  },
+
+  /* =========================================================
+     PAGOS (superadmin): bandeja de comprobantes
+     ========================================================= */
+  async vistaPagos() {
+    this.$('#vista').innerHTML = `
+      <h2>${this.ico('pagos')} Pagos de renta</h2>
+      <div class="tarjeta">
+        <div class="selector-modo">
+          <button id="pg-f-PENDIENTE" class="activo" onclick="App.cargarPagos('PENDIENTE')">Por revisar</button>
+          <button id="pg-f-APROBADO" onclick="App.cargarPagos('APROBADO')">Aprobados</button>
+          <button id="pg-f-" onclick="App.cargarPagos('')">Todos</button>
+        </div>
+      </div>
+      <div id="pg-lista">Cargando…</div>`;
+    this.cargarPagos('PENDIENTE');
+  },
+
+  async cargarPagos(filtro) {
+    for (const f of ['PENDIENTE', 'APROBADO', '']) {
+      const b = this.$('#pg-f-' + f);
+      if (b) b.classList.toggle('activo', f === filtro);
+    }
+    try {
+      const lista = await API.get('/admin/pagos' + (filtro ? '?estado=' + filtro : ''));
+      this.$('#pg-lista').innerHTML = lista.length ? lista.map(p => `
+        <div class="tarjeta">
+          <div class="negocio-fila" style="border:0;padding:0">
+            <div class="info">
+              <div class="n">${this.esc(p.negocio)} — ${this.dinero(p.monto)}</div>
+              <div class="suave">${new Date(p.creado_en).toLocaleString('es-MX')} ·
+                ${this.esc(p.metodo)}${p.referencia ? ' · ref ' + this.esc(p.referencia) : ''}</div>
+              <div class="suave">${p.estado === 'PENDIENTE' ? 'Por revisar'
+                : p.estado === 'APROBADO' ? 'Aprobado · cubre hasta ' + String(p.periodo_fin || '').slice(0, 10)
+                : 'Rechazado: ' + this.esc(p.motivo_rechazo || '')}</div>
+            </div>
+          </div>
+          ${p.tiene_comprobante
+            ? `<img class="comprobante" id="cmp-${p.id}" onclick="window.open(this.src)" alt="comprobante">`
+            : '<p class="suave">Sin foto de comprobante (cobro registrado por nosotros).</p>'}
+          ${p.estado === 'PENDIENTE' ? `
+            <div class="fila" style="margin-top:.6rem">
+              <div><label>Meses que cubre</label><input id="pg-meses-${p.id}" type="number" step="1" value="1"></div>
+            </div>
+            <button class="btn" onclick="App.aprobarPago(${p.id})">${this.ico('check')} Aprobar y sumar el mes</button>
+            <button class="btn secundario" onclick="App.rechazarPago(${p.id})">Rechazar</button>` : ''}
+        </div>`).join('') : '<div class="tarjeta"><p class="suave">No hay pagos aquí.</p></div>';
+
+      for (const p of lista.filter(x => x.tiene_comprobante)) {
+        API.blobURL(`/admin/pagos/${p.id}/comprobante`)
+          .then(url => { const img = this.$('#cmp-' + p.id); if (img) img.src = url; })
+          .catch(() => {});
+      }
+    } catch (e) { this.$('#pg-lista').innerHTML = `<div class="msg-error">${this.esc(e.message)}</div>`; }
+  },
+
+  async aprobarPago(id) {
+    try {
+      const meses = parseInt(this.$('#pg-meses-' + id).value, 10) || 1;
+      const r = await API.post(`/admin/pagos/${id}/aprobar`, { meses });
+      this.avisar(`${r.negocio}: pagado hasta el ${r.nueva_fecha_corte}`);
+      this.cargarPagos('PENDIENTE');
+    } catch (e) { this.avisar(e.message, true); }
+  },
+
+  async rechazarPago(id) {
+    const motivo = prompt('¿Por qué se rechaza? (lo va a leer el cliente)');
+    if (!motivo) return;
+    try {
+      await API.post(`/admin/pagos/${id}/rechazar`, { motivo });
+      this.avisar('Pago rechazado');
+      this.cargarPagos('PENDIENTE');
+    } catch (e) { this.avisar(e.message, true); }
+  },
+
+  /* =========================================================
+     DINERO (superadmin): contabilidad del sistema
+     ========================================================= */
+  async vistaDinero() {
+    this.$('#vista').innerHTML = `<h2>${this.ico('dinero')} Dinero</h2><div id="dn-cont">Cargando…</div>`;
+    try {
+      const c = await API.get('/admin/contabilidad');
+      this.$('#dn-cont').innerHTML = `
+        <div class="stats">
+          <div class="stat"><div class="v">${this.dinero(c.mrr)}</div><div class="l">Renta al mes (${c.negocios_cobrando})</div></div>
+          <div class="stat"><div class="v">${this.dinero(c.ingresos_mes)}</div><div class="l">Cobrado este mes</div></div>
+          <div class="stat"><div class="v" style="color:${c.utilidad_mes < 0 ? 'var(--error)' : 'var(--ok)'}">${this.dinero(c.utilidad_mes)}</div><div class="l">Utilidad del mes</div></div>
+        </div>
+        ${c.morosos.length ? `<div class="tarjeta">
+          <h3>Deben</h3>
+          ${c.morosos.map(m => `<div class="negocio-fila" style="border:0;padding:.3rem 0">
+            <span class="punto" style="background:${this.badgeEstado(m.estado).color}"></span>
+            <div class="info"><div class="n">${this.esc(m.nombre)}</div>
+              <div class="suave">${this.dinero(m.precio_mensual)} · venció hace ${-m.dias} día(s)</div></div>
+          </div>`).join('')}</div>` : ''}
+        <div class="tarjeta">
+          <h3>Registrar un gasto</h3>
+          <div class="fila">
+            <div><label>Concepto</label><input id="dn-concepto" placeholder="Railway, dominio…"></div>
+            <div><label>Monto</label><input id="dn-monto" type="number" step="0.01"></div>
+          </div>
+          <button class="btn chico" style="margin-top:.6rem" onclick="App.registrarGasto()">Guardar gasto</button>
+          <div id="dn-msg"></div>
+        </div>
+        <div class="tarjeta tabla-scroll">
+          <h3>Movimientos</h3>
+          ${c.movimientos.length ? `<table><tr><th>Fecha</th><th>Concepto</th><th class="num">Monto</th></tr>
+            ${c.movimientos.map(m => `<tr>
+              <td>${String(m.fecha).slice(0, 10)}</td>
+              <td>${this.esc(m.concepto)}</td>
+              <td class="num" style="color:${m.tipo === 'GASTO' ? 'var(--error)' : 'var(--ok)'}">
+                ${m.tipo === 'GASTO' ? '-' : '+'}${this.dinero(m.monto)}</td></tr>`).join('')}</table>`
+            : '<p class="suave">Sin movimientos todavía.</p>'}
+        </div>
+        <div class="tarjeta tabla-scroll">
+          <h3>Por mes</h3>
+          ${c.por_mes.length ? `<table><tr><th>Mes</th><th class="num">Ingresos</th><th class="num">Gastos</th></tr>
+            ${c.por_mes.map(m => `<tr><td>${m.mes}</td><td class="num">${this.dinero(m.ingresos)}</td>
+              <td class="num">${this.dinero(m.gastos)}</td></tr>`).join('')}</table>`
+            : '<p class="suave">—</p>'}
+        </div>`;
+    } catch (e) { this.$('#dn-cont').innerHTML = `<div class="msg-error">${this.esc(e.message)}</div>`; }
+  },
+
+  async registrarGasto() {
+    try {
+      await API.post('/admin/gastos', {
+        concepto: this.$('#dn-concepto').value,
+        monto: parseFloat(this.$('#dn-monto').value)
+      });
+      this.avisar('Gasto registrado');
+      this.vistaDinero();
+    } catch (e) { this.$('#dn-msg').innerHTML = `<div class="msg-error">${this.esc(e.message)}</div>`; }
   }
 };
 

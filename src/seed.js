@@ -1,5 +1,6 @@
 const bcrypt = require('bcryptjs');
 const { query, one } = require('./db');
+const { corteEnDias } = require('./suscripcion');
 
 // Catálogo base tomado de la tabla de despiece de FRESQUIPOLLO (pollo promedio 2,500 g)
 const CATALOGO_BASE = [
@@ -45,9 +46,12 @@ async function seed() {
     ['Administrador del sistema', 'admin', bcrypt.hashSync(adminPass, 10)]
   );
 
+  // Arranca con su mes de prueba corriendo, como cualquier cliente nuevo.
   const neg = await one(
-    `INSERT INTO negocios (codigo, nombre, peso_promedio_g, costo_kilo, ticket_leyenda)
-     VALUES ('FRESQUI','FRESQUIPOLLO',2500,40,'GRACIAS POR SU COMPRA') RETURNING id`
+    `INSERT INTO negocios (codigo, nombre, peso_promedio_g, costo_kilo, ticket_leyenda,
+                           precio_mensual, estado, fecha_corte)
+     VALUES ('FRESQUI','FRESQUIPOLLO',2500,40,'GRACIAS POR SU COMPRA',
+             150,'PRUEBA',$1::date) RETURNING id`, [corteEnDias(30)]
   );
 
   await query(

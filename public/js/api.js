@@ -27,6 +27,16 @@ const API = {
   },
 
   get(ruta) { return this.req('GET', ruta); },
+
+  /* Imágenes protegidas (comprobantes de pago): una etiqueta <img> no puede
+     mandar el token en la cabecera, así que se baja con fetch y se convierte
+     en una URL temporal del navegador. Así el token nunca viaja en la URL. */
+  async blobURL(ruta) {
+    const r = await fetch('/api' + ruta, { headers: { Authorization: 'Bearer ' + this.token } });
+    if (!r.ok) throw new Error('No se pudo cargar la imagen');
+    return URL.createObjectURL(await r.blob());
+  },
+
   post(ruta, body) { return this.req('POST', ruta, body); },
   put(ruta, body) { return this.req('PUT', ruta, body); },
 
