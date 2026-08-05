@@ -17,10 +17,13 @@ const API = {
     if (body !== undefined) opts.body = JSON.stringify(body);
     const r = await fetch('/api' + ruta, opts);
     const data = await r.json().catch(() => ({}));
-    if (r.status === 401) {
+    // Un 401 al INTENTAR entrar no es una sesión vencida: es que el usuario o
+    // la contraseña no coinciden. Tratarlo igual mandaba a recargar la página
+    // con un "Sesión expirada" que no le decía nada a nadie.
+    if (r.status === 401 && ruta !== '/login') {
       API.setToken(null);
       location.reload();
-      throw new Error('Sesión expirada');
+      throw new Error('Tu sesión se cerró. Vuelve a entrar.');
     }
     if (!r.ok) throw new Error(data.error || 'Error de servidor');
     return data;

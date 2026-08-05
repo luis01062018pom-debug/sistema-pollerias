@@ -1,6 +1,6 @@
 /* Service worker: cachea el cascarón de la app para que abra sin internet.
    Las llamadas /api van siempre a la red (las ventas offline se encolan en la app). */
-const CACHE = 'polleria-v3';
+const CACHE = 'polleria-v4';
 const ARCHIVOS = [
   '/', '/index.html', '/css/app.css', '/js/api.js', '/js/app.js',
   '/manifest.json', '/icons/icon-192.png', '/icons/icon-512.png'
