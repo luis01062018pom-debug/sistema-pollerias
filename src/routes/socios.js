@@ -15,8 +15,9 @@ const express = require('express');
 const { one, rows } = require('../db');
 const { estadoSuscripcion } = require('../suscripcion');
 const { confirmarPago, cobroManual, rechazarPago } = require('../pagos');
+const { seguro } = require('../asincrono');
 
-const router = express.Router();
+const router = seguro(express.Router());
 
 router.use((req, res, next) => {
   const esperado = process.env.SOCIOS_TOKEN;

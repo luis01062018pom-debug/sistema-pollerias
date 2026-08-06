@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="FRESQUIPOLLO">
+  <!-- Versión "maskable" para Android: el arte vive dentro del 80% central
+       porque el sistema recorta el icono en círculo, gota o cuadrado. -->
+  <defs>
+    <linearGradient id="fondoM" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FF8A1F"/>
+      <stop offset="1" stop-color="#EF5A05"/>
+    </linearGradient>
+    <linearGradient id="cintaM" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#E0242B"/>
+      <stop offset="1" stop-color="#BE131A"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="512" height="512" fill="url(#fondoM)"/>
+  <circle cx="256" cy="240" r="168" fill="#FFFFFF" opacity="0.10"/>
+
+  <g transform="matrix(0.78 0 0 0.78 56.32 56.32)">
+    <!-- Pollo -->
+    <g transform="matrix(0.86 0 0 0.86 35.84 11.04)">
+      <g stroke="#F27405" stroke-width="15" stroke-linecap="round" fill="none">
+        <path d="M226 372 V 424"/>
+        <path d="M290 372 V 424"/>
+        <path d="M200 440 L 226 424 L 252 440"/>
+        <path d="M264 440 L 290 424 L 316 440"/>
+      </g>
+      <g stroke="#C2151C" stroke-width="9" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M148 300 C 92 288 74 232 96 196 C 104 232 128 246 150 248 Z" fill="#FFFFFF"/>
+        <path d="M150 330 C 88 336 60 292 70 254 C 92 288 122 292 152 284 Z" fill="#FFFFFF"/>
+        <path d="M256 176 C 186 176 148 244 148 306 C 148 366 196 404 256 404 C 316 404 364 366 364 306 C 364 244 326 176 256 176 Z" fill="#FFFFFF"/>
+        <path d="M214 118 C 206 92 222 76 240 84 C 240 60 268 54 280 74 C 296 62 318 76 312 98 C 306 118 286 126 268 122 Z" fill="#D62027"/>
+        <circle cx="252" cy="180" r="80" fill="#FFFFFF"/>
+        <path d="M318 224 C 336 226 342 246 330 256 C 316 266 300 256 300 240 Z" fill="#D62027"/>
+        <path d="M322 168 L 386 186 L 322 208 Z" fill="#FF9E1B"/>
+        <path d="M322 190 L 386 186 L 322 208 Z" fill="#F27405"/>
+      </g>
+      <circle cx="288" cy="160" r="19" fill="#FFFFFF" stroke="#C2151C" stroke-width="8"/>
+      <circle cx="292" cy="162" r="9" fill="#2B1206"/>
+      <circle cx="296" cy="157" r="3.4" fill="#FFFFFF"/>
+      <path d="M232 262 C 190 262 168 300 186 330 C 200 352 236 356 258 338"
+            fill="#FFFFFF" stroke="#C2151C" stroke-width="9" stroke-linejoin="round" stroke-linecap="round"/>
+      <g fill="none" stroke="#C2151C" stroke-width="7" stroke-linecap="round" opacity=".7">
+        <path d="M216 302 C 232 312 244 317 256 317"/>
+        <path d="M208 322 C 224 332 238 337 250 337"/>
+      </g>
+    </g>
+    <!-- Cinta -->
+    <rect x="30" y="392" width="452" height="70" rx="16" fill="url(#cintaM)"/>
+    <rect x="41" y="403" width="430" height="48" rx="9" fill="none" stroke="#FFFFFF" stroke-width="4" opacity="0.42"/>
+    <text x="256" y="441" text-anchor="middle" fill="#FFFFFF"
+          font-family="Verdana, DejaVu Sans, Arial, Helvetica, sans-serif"
+          font-size="45" font-weight="bold" letter-spacing="1.2">FRESQUIPOLLO</text>
+  </g>
+</svg>

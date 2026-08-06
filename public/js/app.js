@@ -63,20 +63,25 @@ const App = {
 
   /* ===== Arranque ===== */
   async iniciar() {
+    this.aplicarMarca(this.marcaGuardada()); // que el login ya traiga su cara
     if (!API.token) return this.vistaLogin();
     try {
-      const boot = await API.get('/bootstrap');
+      const boot = await API.bootstrap();
       this.state.user = boot.user;
       this.state.negocio = boot.negocio;
       this.state.piezas = boot.piezas || [];
       this.state.suscripcion = boot.suscripcion || null;
-      this.aplicarMarca();
+      this.state.arranqueSinRed = !!boot.deCache;
+      this.aplicarMarca(boot.negocio);
       // Si el servicio está suspendido por falta de pago, lo único que se
       // puede hacer es subir el comprobante: se entra directo a esa pantalla.
       this.state.vista = boot.user.rol === 'superadmin' ? 'admin'
-        : (this.suspendido() ? 'cuenta' : 'vender');
+        : (this.suspendido() ? 'cuenta' : (this.vistaDelAtajo() || 'vender'));
       this.pintar();
-      API.sincronizar();
+      if (boot.deCache) {
+        this.avisar('Sin internet: se abrió con los datos guardados. Puedes vender igual.');
+      }
+      API.sincronizarYAvisar(true);
     } catch (e) {
       if (/suspendido/i.test(e.message)) {
         document.getElementById('app').innerHTML =
@@ -84,29 +89,72 @@ const App = {
              <h2>Negocio suspendido</h2><p class="suave">${this.esc(e.message)}</p>
              <button class="btn" onclick="App.salir()">Salir</button></div></div>`;
       } else {
-        this.vistaLogin(e.message);
+        this.vistaLogin(API.esDeRed(e)
+          ? 'Sin internet y sin datos guardados en este equipo. Conéctate una vez para dejar la app lista.'
+          : e.message);
       }
     }
   },
 
-  aplicarMarca() {
-    const n = this.state.negocio;
+  /* El atajo del icono ("Vender", "Corte") llega como /?ir=corte */
+  vistaDelAtajo() {
+    const v = new URLSearchParams(location.search).get('ir');
+    return ['vender', 'corte', 'compras', 'inventario'].includes(v) ? v : null;
+  },
+
+  /* La marca del último negocio que entró en este equipo, para que el login y
+     el icono ya se vean suyos aunque todavía no haya sesión. */
+  marcaGuardada() {
+    try { return JSON.parse(localStorage.getItem('marca') || 'null'); } catch (e) { return null; }
+  },
+
+  aplicarMarca(n) {
     if (!n) return;
-    document.documentElement.style.setProperty('--primario', n.color_primario || '#263949');
-    document.documentElement.style.setProperty('--secundario', n.color_secundario || '#16222e');
-    document.title = n.nombre;
+    aplicarPaleta({
+      primario: n.color_primario, secundario: n.color_secundario,
+      acento: n.color_acento, fondo: n.color_fondo,
+    });
+    if (n.nombre) document.title = n.nombre;
+    if (n.codigo) {
+      // Cada pollería instala la app con SU logo: el manifest se apunta al de
+      // su negocio, y con eso el icono del teléfono y el del escritorio son
+      // los suyos, no los nuestros.
+      const lnk = document.getElementById('lnk-manifest');
+      const destino = '/api/publico/manifest/' + encodeURIComponent(n.codigo);
+      if (lnk && lnk.getAttribute('href') !== destino) lnk.setAttribute('href', destino);
+      const apple = document.getElementById('lnk-apple');
+      if (apple && n.tiene_iconos !== false) {
+        apple.setAttribute('href', `/api/publico/icono/${encodeURIComponent(n.codigo)}/192.png`);
+      }
+      try {
+        localStorage.setItem('marca', JSON.stringify({
+          codigo: n.codigo, nombre: n.nombre, logo: n.logo || null,
+          color_primario: n.color_primario, color_secundario: n.color_secundario,
+          color_acento: n.color_acento, color_fondo: n.color_fondo,
+        }));
+      } catch (e) { /* almacenamiento lleno: la marca es lo menos importante */ }
+    }
   },
 
   salir() {
     API.setToken(null);
+    API.olvidarBootstrap();
     location.reload();
   },
 
   /* ===== Login ===== */
   vistaLogin(error) {
+    const m = this.marcaGuardada();
+    const pendientes = API.colaPendiente();
     document.getElementById('app').innerHTML = `
       <div class="login-wrap"><div class="login-caja">
-        <div class="marca"><div class="sello">${this.ico('pluma')}</div><h1>Punto de Venta<br>Pollería</h1></div>
+        <div class="marca">
+          ${m && m.logo
+            ? `<img class="logo-marca" src="${m.logo}" alt=""><h1>${this.esc(m.nombre || '')}</h1>`
+            : `<img class="logo-marca ancho" src="icons/logo-horizontal.svg" alt="FRESQUIPOLLO">`}
+        </div>
+        ${pendientes > 0 ? `<div class="cinta">Tienes ${pendientes} venta(s) guardadas en este equipo.
+           Entra para que se suban.</div>` : ''}
         <div class="tarjeta">
           <label>Usuario</label>
           <input id="lg-usuario" autocomplete="username" autocapitalize="none">
@@ -149,14 +197,15 @@ const App = {
         ? [['cuenta', 'Mi cuenta']]
         : [
             ['vender', 'Vender'],
-            ['compras', 'Compras'],
+            ...(this.flag('compras') ? [['compras', 'Compras']] : []),
             ...(this.flag('inventario') ? [['inventario', 'Inventario']] : []),
-            ['corte', 'Corte'],
+            ...(this.flag('corte') ? [['corte', 'Corte']] : []),
             ['mas', 'Más']
           ];
     document.getElementById('app').innerHTML = `
       <div class="topbar">
-        ${n && n.logo ? `<img class="logo" src="${n.logo}">` : this.ico('pluma', 'g')}
+        ${esAdmin ? this.ico('admin', 'g')
+          : `<img class="logo" src="${n && n.logo ? n.logo : 'icons/icon-192.png'}" alt="">`}
         <div class="nombre">${this.esc(esAdmin ? 'Panel de administración' : (n ? n.nombre : ''))}</div>
         <span id="estado-red"></span>
         <div class="usuario">${this.esc(this.state.user.nombre)}<br>
@@ -185,13 +234,28 @@ const App = {
       </div>`;
   },
 
+  /* El semáforo de la barra: sin internet, o cuántas ventas faltan por subir.
+     Se puede tocar para forzar el envío sin esperar al reintento automático. */
   pintarEstadoRed() {
     const el = document.getElementById('estado-red');
     if (!el) return;
     const pend = API.colaPendiente();
-    el.innerHTML = !navigator.onLine
-      ? '<span class="badge-offline">SIN INTERNET</span>'
-      : (pend > 0 ? `<span class="badge-offline">${pend} por sincronizar</span>` : '');
+    const sinRed = !navigator.onLine;
+    if (!sinRed && !pend) return (el.innerHTML = '');
+    const texto = sinRed
+      ? (pend > 0 ? `SIN INTERNET · ${pend} por subir` : 'SIN INTERNET')
+      : `${pend} por subir`;
+    el.innerHTML = `<span class="badge-offline" title="Tocar para intentar sincronizar"
+        onclick="App.sincronizarAhora()">${texto}</span>`;
+  },
+
+  async sincronizarAhora() {
+    if (!API.colaPendiente()) return;
+    this.avisar('Enviando ventas guardadas…');
+    const n = await API.sincronizarYAvisar(true);
+    this.avisar(n > 0 ? `${n} venta(s) sincronizada(s)`
+      : 'Todavía no hay internet. Se seguirán intentando solas.', n === 0);
+    this.pintarEstadoRed();
   },
 
   ir(vista) {
@@ -199,6 +263,8 @@ const App = {
     this.pintar();
   },
 
+  /* Una vista que truena no debe dejar la pantalla en blanco con la caja
+     abierta: se avisa y se ofrece volver a vender. */
   pintarVista() {
     const v = this.state.vista;
     const fn = {
@@ -207,7 +273,22 @@ const App = {
       config: this.vistaConfig, admin: this.vistaAdmin, cuenta: this.vistaCuenta,
       pagos: this.vistaPagos, dinero: this.vistaDinero
     }[v];
-    if (fn) fn.call(this);
+    if (!fn) return;
+    try {
+      const r = fn.call(this);
+      if (r && typeof r.catch === 'function') r.catch(e => this.vistaConProblema(e));
+    } catch (e) { this.vistaConProblema(e); }
+  },
+
+  vistaConProblema(e) {
+    console.error(e);
+    const el = this.$('#vista');
+    if (!el) return;
+    el.innerHTML = `<div class="tarjeta centrado">
+        <h3>No se pudo mostrar esta pantalla</h3>
+        <p class="suave">${this.esc((e && e.message) || 'Error inesperado')}</p>
+        <button class="btn" onclick="App.ir('vender')">Volver a vender</button>
+      </div>`;
   },
 
   /* =========================================================
@@ -417,17 +498,24 @@ const App = {
       <h3>Compras recientes</h3>
       <div class="tarjeta tabla-scroll" id="cp-lista">Cargando…</div>`;
     try {
-      const lista = await API.get('/compras');
-      this.$('#cp-lista').innerHTML = lista.length ? `
+      const c = await API.getCache('/compras', 'compras');
+      const lista = c.datos || [];
+      this.$('#cp-lista').innerHTML = (c.deCache
+        ? `<div class="cinta">${this.ico('offline')} <span>Sin conexión: compras guardadas
+             a las ${this.hora(c.capturado_en)}. Para registrar una compra nueva sí hace falta internet.</span></div>`
+        : '') + (lista.length ? `
         <table><tr><th>Fecha</th><th class="num">Pollos</th><th class="num">Kilos</th><th class="num">$/kg</th><th class="num">Costo</th></tr>
-        ${lista.map(c => `<tr>
-          <td>${String(c.fecha).slice(0, 10)}</td>
-          <td class="num">${c.pollos}</td>
-          <td class="num">${this.num(c.kg_total)}</td>
-          <td class="num">${this.dinero(c.costo_kilo)}</td>
-          <td class="num">${this.dinero(c.costo_total)}</td></tr>`).join('')}</table>`
-        : '<p class="suave">Aún no hay compras registradas.</p>';
-    } catch (e) { this.$('#cp-lista').innerHTML = `<p class="suave">Sin conexión — las compras se registran solo con internet.</p>`; }
+        ${lista.map(co => `<tr>
+          <td>${String(co.fecha).slice(0, 10)}</td>
+          <td class="num">${co.pollos}</td>
+          <td class="num">${this.num(co.kg_total)}</td>
+          <td class="num">${this.dinero(co.costo_kilo)}</td>
+          <td class="num">${this.dinero(co.costo_total)}</td></tr>`).join('')}</table>`
+        : '<p class="suave">Aún no hay compras registradas.</p>');
+    } catch (e) {
+      this.$('#cp-lista').innerHTML = `<p class="suave">${this.esc(API.esDeRed(e)
+        ? 'Sin internet y sin compras guardadas en este equipo.' : e.message)}</p>`;
+    }
   },
 
   _sugerirKg() {
@@ -494,9 +582,27 @@ const App = {
       <p class="suave">Los kilos entran con cada compra (despiece) y se descuentan con cada venta.
       Un número negativo significa que se vendió más de lo esperado en el despiece.</p>`;
     try {
-      const inv = await API.get('/inventario');
+      const c = await API.getCache('/inventario', 'inventario');
       const n = this.state.negocio;
+      const inv = (c.datos || []).map(p => ({ ...p }));
+
+      // Sin internet, al inventario guardado se le restan las ventas que este
+      // equipo hizo después: es un estimado, pero es el número con el que se
+      // trabaja en el mostrador.
+      const extra = API.ventasNoContadas(c.capturado_en);
+      for (const v of extra) {
+        for (const it of (v.items || [])) {
+          const p = inv.find(x => x.pieza_id === it.pieza_id);
+          if (!p) continue;
+          const pesoPieza = p.por_pollo > 0 ? (p.rendimiento * n.peso_promedio_g / 1000) / p.por_pollo : 0;
+          p.kg -= it.modo === 'pieza' ? (Number(it.cantidad) || 0) * pesoPieza : (Number(it.cantidad) || 0);
+        }
+      }
+
       this.$('#inv').innerHTML = `
+        ${c.deCache ? `<div class="cinta">${this.ico('offline')}
+          <span>Sin conexión: inventario guardado a las ${this.hora(c.capturado_en)},
+          menos lo vendido aquí desde entonces.</span></div>` : ''}
         <table><tr><th>Pieza</th><th class="num">Kilos</th><th class="num">≈ Piezas</th></tr>
         ${inv.map(p => {
           const pesoPieza = p.por_pollo > 0 ? (p.rendimiento * n.peso_promedio_g / 1000) / p.por_pollo : 0;
@@ -506,50 +612,146 @@ const App = {
             <td class="num">${this.num(p.kg, 2)}</td>
             <td class="num">${pesoPieza > 0 ? this.num(aproxPzas, 0) : '—'}</td></tr>`;
         }).join('')}</table>`;
-    } catch (e) { this.$('#inv').innerHTML = '<p class="suave">Necesitas internet para ver el inventario.</p>'; }
+    } catch (e) {
+      this.$('#inv').innerHTML = `<p class="suave">${this.esc(API.esDeRed(e)
+        ? 'Sin internet y todavía sin una copia del inventario en este equipo.'
+        : e.message)}</p>`;
+    }
   },
 
   /* =========================================================
      CORTE DE CAJA
      ========================================================= */
+  /**
+   * Corte de caja que también funciona sin internet.
+   *
+   * Se parte del último resumen que dio el servidor (guardado en el equipo) y
+   * se le suman las ventas de este dispositivo que el servidor todavía no
+   * tenía en ese momento. Así el número que ve el dueño es el bueno, con o
+   * sin señal, y ninguna venta se cuenta dos veces.
+   */
   async vistaCorte() {
     this.$('#vista').innerHTML = `<h2>${this.ico('corte')} Corte de caja</h2><div id="corte-cont">Cargando…</div>`;
+    let base = null, deCache = false, capturado = 0, falloRed = false;
     try {
-      const r = await API.get('/corte/hoy');
-      this.$('#corte-cont').innerHTML = `
-        <div class="stats">
-          <div class="stat"><div class="v">${r.num_ventas}</div><div class="l">Ventas hoy</div></div>
-          <div class="stat"><div class="v">${this.dinero(r.total_ventas)}</div><div class="l">Total vendido</div></div>
-          <div class="stat"><div class="v">${this.dinero(r.compras.costo)}</div><div class="l">Compras hoy (${r.compras.pollos} pollos)</div></div>
-        </div>
-        <div class="tarjeta tabla-scroll">
-          <h3>Vendido por producto</h3>
-          ${r.por_pieza.length ? `<table><tr><th>Producto</th><th class="num">Cantidad</th><th class="num">Importe</th></tr>
-            ${r.por_pieza.map(p => `<tr><td>${this.esc(p.nombre)}</td>
-              <td class="num">${this.num(p.cantidad, 2)} ${p.modo === 'kg' ? 'kg' : 'pzas'}</td>
-              <td class="num">${this.dinero(p.importe)}</td></tr>`).join('')}</table>`
-            : '<p class="suave">Sin ventas todavía.</p>'}
-        </div>
-        <div class="tarjeta">
-          <h3>${r.cerrado ? 'Corte cerrado ' + this.ico('check') : 'Cerrar el día'}</h3>
-          ${r.cerrado ? `
-            <p>Efectivo contado: <b>${this.dinero(r.corte.efectivo_contado)}</b><br>
-               Diferencia: <b style="color:${r.corte.diferencia < 0 ? 'var(--error)' : 'var(--ok)'}">${this.dinero(r.corte.diferencia)}</b></p>
-            <p class="suave">Puedes volver a cerrarlo si registraste más ventas después.</p>` : ''}
-          <label>Efectivo contado en caja</label>
-          <input id="ct-efectivo" type="number" step="0.01" inputmode="decimal">
-          <button class="btn" onclick="App.cerrarCorte()">Cerrar corte de hoy</button>
-          <div id="ct-msg"></div>
-        </div>`;
-    } catch (e) { this.$('#corte-cont').innerHTML = '<p class="suave">Necesitas internet para el corte.</p>'; }
+      const c = await API.getCache('/corte/hoy', 'corte-hoy');
+      base = c.datos; deCache = c.deCache; capturado = c.capturado_en || 0;
+    } catch (e) {
+      if (!API.esDeRed(e)) {
+        return (this.$('#corte-cont').innerHTML = `<div class="msg-error">${this.esc(e.message)}</div>`);
+      }
+      falloRed = true;
+    }
+    const r = base || { num_ventas: 0, total_ventas: 0, por_pieza: [], cerrado: false,
+                        compras: { costo: 0, pollos: 0, kg: 0 } };
+
+    const extra = API.ventasNoContadas(capturado);
+    const totalExtra = extra.reduce((s, v) => s + this._totalVenta(v), 0);
+    const porPieza = (r.por_pieza || []).map(p => ({ ...p }));
+    for (const v of extra) {
+      for (const it of (v.items || [])) {
+        const y = porPieza.find(p => p.nombre === it.nombre && p.modo === it.modo);
+        if (y) { y.cantidad += Number(it.cantidad) || 0; y.importe += Number(it.subtotal) || 0; }
+        else porPieza.push({ nombre: it.nombre, modo: it.modo,
+                             cantidad: Number(it.cantidad) || 0, importe: Number(it.subtotal) || 0 });
+      }
+    }
+    porPieza.sort((a, b) => b.importe - a.importe);
+    const numVentas = (r.num_ventas || 0) + extra.length;
+    const total = (r.total_ventas || 0) + totalExtra;
+    const sinRed = deCache || falloRed || !navigator.onLine;
+    const sinSubir = extra.filter(v => !v.sincronizada);
+
+    this.$('#corte-cont').innerHTML = `
+      ${sinRed ? `<div class="cinta">
+          ${this.ico('offline')} <span>Sin conexión: ${base
+            ? 'los totales del servidor son de ' + this.hora(capturado) + ' más lo vendido aquí desde entonces.'
+            : 'se muestran solo las ventas hechas en este equipo.'}</span></div>` : ''}
+      <div class="stats">
+        <div class="stat"><div class="v">${numVentas}</div><div class="l">Ventas hoy</div></div>
+        <div class="stat"><div class="v">${this.dinero(total)}</div><div class="l">Total vendido</div></div>
+        <div class="stat"><div class="v">${this.dinero(r.compras.costo)}</div><div class="l">Compras hoy (${r.compras.pollos} pollos)</div></div>
+      </div>
+      ${extra.length ? `<p class="suave">Incluye ${extra.length} venta(s) de este equipo por
+        ${this.dinero(totalExtra)}${sinSubir.length ? `, de las cuales ${sinSubir.length} todavía no
+        suben al servidor` : ''}.</p>` : ''}
+      <div class="tarjeta tabla-scroll">
+        <h3>Vendido por producto</h3>
+        ${porPieza.length ? `<table><tr><th>Producto</th><th class="num">Cantidad</th><th class="num">Importe</th></tr>
+          ${porPieza.map(p => `<tr><td>${this.esc(p.nombre)}</td>
+            <td class="num">${this.num(p.cantidad, 2)} ${p.modo === 'kg' ? 'kg' : 'pzas'}</td>
+            <td class="num">${this.dinero(p.importe)}</td></tr>`).join('')}</table>`
+          : '<p class="suave">Sin ventas todavía.</p>'}
+      </div>
+      ${this.tarjetaVentasDelDia()}
+      <div class="tarjeta">
+        <h3>${r.cerrado ? 'Corte cerrado ' + this.ico('check') : 'Cerrar el día'}</h3>
+        ${r.cerrado ? `
+          <p>Efectivo contado: <b>${this.dinero(r.corte.efectivo_contado)}</b><br>
+             Diferencia: <b style="color:${r.corte.diferencia < 0 ? 'var(--error)' : 'var(--ok)'}">${this.dinero(r.corte.diferencia)}</b></p>
+          <p class="suave">Puedes volver a cerrarlo si registraste más ventas después.</p>` : ''}
+        <label>Efectivo contado en caja</label>
+        <input id="ct-efectivo" type="number" step="0.01" inputmode="decimal">
+        <button class="btn" onclick="App.cerrarCorte()">Cerrar corte de hoy</button>
+        <p class="suave">El corte se cierra en el servidor: si no hay internet, primero
+          se suben las ventas guardadas.</p>
+        <div id="ct-msg"></div>
+      </div>`;
+  },
+
+  _totalVenta(v) {
+    if (Number.isFinite(v.total)) return v.total;
+    return (v.items || []).reduce((s, i) => s + (Number(i.subtotal) || 0), 0);
+  },
+
+  hora(ms) {
+    if (!ms) return '—';
+    return new Date(ms).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
+  },
+
+  /** Movimientos del día hechos en este equipo (se ven con o sin internet). */
+  tarjetaVentasDelDia() {
+    const ventas = API.ventasDeHoy();
+    if (!ventas.length) return '';
+    return `
+      <div class="tarjeta tabla-scroll">
+        <h3>Ventas de hoy en este equipo (${ventas.length})</h3>
+        <table>
+          <tr><th>Hora</th><th>Productos</th><th class="num">Total</th><th></th></tr>
+          ${ventas.slice(0, 60).map(v => `<tr>
+            <td>${this.hora(new Date(v.fecha).getTime())}</td>
+            <td>${this.esc((v.items || []).map(i => i.nombre).join(', ')).slice(0, 60)}</td>
+            <td class="num">${this.dinero(this._totalVenta(v))}</td>
+            <td>${v.sincronizada
+              ? `<span class="suave" title="Ya está en el servidor">${this.ico('check')}</span>`
+              : '<span class="etiqueta chica" style="background:#b8860b">por subir</span>'}</td>
+          </tr>`).join('')}
+        </table>
+        <p class="suave">Se guarda en el equipo aunque no haya internet; se sube solo cuando vuelve.</p>
+      </div>`;
   },
 
   async cerrarCorte() {
+    const efectivo = parseFloat(this.$('#ct-efectivo').value) || 0;
     try {
-      const r = await API.post('/corte', { efectivo_contado: parseFloat(this.$('#ct-efectivo').value) || 0 });
+      // Primero suben las ventas pendientes: cerrar el corte sin ellas daría
+      // una diferencia falsa y el dueño creería que le falta dinero.
+      if (API.colaPendiente() > 0) {
+        this.$('#ct-msg').innerHTML = '<p class="suave">Subiendo las ventas guardadas…</p>';
+        await API.sincronizar();
+        if (API.colaPendiente() > 0) {
+          this.$('#ct-msg').innerHTML = `<div class="msg-error">Faltan ${API.colaPendiente()} venta(s)
+            por subir y sin internet no se puede cerrar el corte. Conéctate un momento y vuelve a intentar.</div>`;
+          return;
+        }
+      }
+      const r = await API.post('/corte', { efectivo_contado: efectivo });
       this.avisar('Corte cerrado. Diferencia: ' + this.dinero(r.diferencia), false);
       this.vistaCorte();
-    } catch (e) { this.$('#ct-msg').innerHTML = `<div class="msg-error">${this.esc(e.message)}</div>`; }
+    } catch (e) {
+      this.$('#ct-msg').innerHTML = `<div class="msg-error">${this.esc(
+        API.esDeRed(e) ? 'Sin internet: el corte se cierra cuando vuelva la señal. Tus ventas ya están guardadas.' : e.message)}</div>`;
+    }
   },
 
   /* =========================================================
@@ -557,15 +759,67 @@ const App = {
      ========================================================= */
   vistaMas() {
     const esDueno = this.state.user.rol === 'dueno';
+    const pend = API.colaPendiente();
+    const rechazadas = API.ventasRechazadas().length;
     this.$('#vista').innerHTML = `
       <h2>Más opciones</h2>
+      <div class="tarjeta">
+        <h3>${navigator.onLine ? this.ico('check') : this.ico('offline')} Conexión</h3>
+        <p class="suave">${navigator.onLine ? 'Con internet.' : 'Sin internet: puedes seguir vendiendo, todo se guarda aquí.'}</p>
+        <p>${pend > 0
+          ? `<b>${pend}</b> venta(s) esperando para subir.`
+          : 'No hay ventas pendientes de subir.'}</p>
+        ${pend > 0 ? `<button class="btn chico" onclick="App.sincronizarAhora()">Intentar subirlas ahora</button>` : ''}
+        ${rechazadas > 0 ? `<p class="suave" style="color:var(--error)">${rechazadas} venta(s) que el
+          servidor no aceptó. Anótalas a mano y avisa a soporte.</p>` : ''}
+      </div>
+      ${this.tarjetaInstalar()}
       <div class="tarjeta lista-simple">
         ${this.flag('reportes') ? `<div onclick="App.ir('reportes')" style="cursor:pointer"><span>${this.ico('reportes')} Reportes</span><span>›</span></div>` : ''}
         ${esDueno ? `<div onclick="App.ir('config')" style="cursor:pointer"><span>${this.ico('config')} Configuración del negocio</span><span>›</span></div>` : ''}
         ${esDueno ? `<div onclick="App.ir('cuenta')" style="cursor:pointer"><span>${this.ico('cuenta')} Mi cuenta y pagos</span><span>›</span></div>` : ''}
         <div onclick="App.salir()" style="cursor:pointer"><span>${this.ico('salir')} Cerrar sesión</span><span>›</span></div>
       </div>
-      <p class="suave centrado">Versión 1.1</p>`;
+      <p class="suave centrado">Versión 1.2 · funciona sin internet</p>`;
+  },
+
+  /**
+   * Instalar la app en el equipo. Instalada pesa menos, abre a pantalla
+   * completa y —lo que importa aquí— guarda su caché aparte, así que aguanta
+   * mejor los días sin internet.
+   */
+  tarjetaInstalar() {
+    const instalada = window.matchMedia('(display-mode: standalone)').matches
+      || window.navigator.standalone === true;
+    if (instalada) {
+      return `<div class="tarjeta"><h3>${this.ico('check')} App instalada</h3>
+        <p class="suave">Estás usando la app instalada en este equipo.</p></div>`;
+    }
+    const esIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
+    if (this._instalador) {
+      return `<div class="tarjeta">
+        <h3>Instalar la app en este equipo</h3>
+        <p class="suave">Queda con su icono en la pantalla de inicio o en el escritorio.</p>
+        <button class="btn" onclick="App.instalar()">Instalar</button></div>`;
+    }
+    if (esIOS) {
+      return `<div class="tarjeta">
+        <h3>Instalar en el iPhone</h3>
+        <p class="suave">Toca el botón de compartir de Safari y elige
+          <b>“Agregar a la pantalla de inicio”</b>.</p></div>`;
+    }
+    return `<div class="tarjeta">
+      <h3>Instalar la app</h3>
+      <p class="suave">En Android o en la computadora, abre el menú del navegador y elige
+        <b>“Instalar app”</b> o <b>“Agregar a la pantalla de inicio”</b>.</p></div>`;
+  },
+
+  async instalar() {
+    if (!this._instalador) return;
+    this._instalador.prompt();
+    try { await this._instalador.userChoice; } catch (e) { /* el usuario cerró */ }
+    this._instalador = null;
+    this.vistaMas();
   },
 
   /* =========================================================
@@ -628,6 +882,7 @@ const App = {
         <button class="btn" onclick="App.guardarConfig()">Guardar datos</button>
         <div id="cf-msg"></div>
       </div>
+      ${this.flag('precios') ? `
       <div class="tarjeta tabla-scroll">
         <h3>Precios y despiece esperado</h3>
         <p class="suave">El % de rendimiento y las piezas por pollo definen el despiece que se calcula en cada compra. Ajústalos a como corta tu pollería.</p>
@@ -639,7 +894,8 @@ const App = {
           <td class="num">${p.es_extra ? '—' : `<input style="width:60px" type="number" step="0.1" id="rd-${p.id}" value="${Math.round(p.rendimiento * 1000) / 10}">`}</td>
           <td class="num">${p.es_extra ? '—' : `<input style="width:55px" type="number" step="1" id="pl-${p.id}" value="${p.por_pollo}">`}</td></tr>`).join('')}</table>
         <button class="btn" onclick="App.guardarPrecios()">Guardar precios y despiece</button>
-      </div>
+      </div>` : ''}
+      ${this.flag('empleados') ? `
       <div class="tarjeta">
         <h3>Empleados</h3>
         <div id="cf-empleados" class="lista-simple">Cargando…</div>
@@ -650,12 +906,19 @@ const App = {
         <input id="em-pass" placeholder="contraseña" style="margin-top:.6rem">
         <button class="btn chico" style="margin-top:.7rem" onclick="App.crearEmpleado()">+ Agregar empleado</button>
         <div id="em-msg"></div>
-      </div>`;
+      </div>` : ''}`;
+    if (!this.flag('empleados')) return;
     try {
       const emp = await API.get('/empleados');
-      this.$('#cf-empleados').innerHTML = emp.map(e =>
-        `<div><span>${this.esc(e.nombre)} <span class="suave">(${this.esc(e.usuario)} · ${e.rol})</span></span></div>`).join('') || '<p class="suave">Solo tú por ahora.</p>';
-    } catch (e) {}
+      const el = this.$('#cf-empleados');
+      if (el) {
+        el.innerHTML = emp.map(e =>
+          `<div><span>${this.esc(e.nombre)} <span class="suave">(${this.esc(e.usuario)} · ${e.rol})</span></span></div>`).join('') || '<p class="suave">Solo tú por ahora.</p>';
+      }
+    } catch (e) {
+      const el = this.$('#cf-empleados');
+      if (el) el.innerHTML = '<p class="suave">No se pudo cargar la lista (¿sin internet?).</p>';
+    }
   },
 
   async guardarConfig() {
@@ -874,8 +1137,17 @@ const App = {
   editarNegocio(id) {
     const n = this._negocios.find(x => x.id === id);
     if (!n) return;
-    const FLAGS = [['inventario', 'Inventario'], ['reportes', 'Reportes'], ['whatsapp', 'Ticket por WhatsApp']];
+    const FLAGS = [
+      ['compras', 'Compras con despiece automático', 'Registrar la compra de pollos y repartirla en piezas'],
+      ['inventario', 'Inventario', 'Kilos por pieza, entran con la compra y salen con la venta'],
+      ['corte', 'Corte de caja', 'Cierre del día con efectivo contado y diferencia'],
+      ['reportes', 'Reportes', 'Ventas, compras y ganancia por rango de fechas'],
+      ['precios', 'El dueño edita sus precios', 'Si se apaga, los precios solo los cambiamos nosotros'],
+      ['empleados', 'El dueño da de alta empleados', 'Crear usuarios de mostrador desde su app'],
+      ['whatsapp', 'Ticket por WhatsApp', 'Botón para mandarle el ticket al cliente'],
+    ];
     const b = this.badgeEstado(n.situacion.estado);
+    this._iconosNuevos = null;
     this.modal(`
       <h3>${this.esc(n.nombre)}
         <span class="etiqueta chica" style="background:${b.color}">${b.texto}</span></h3>
@@ -910,26 +1182,59 @@ const App = {
       </div>
       <button class="btn chico" style="margin-top:.6rem" onclick="App.cobrarManual(${n.id})">Cobrar y sumar el mes</button>
 
-      <h3>Personalización</h3>
-      <label>Nombre del negocio</label>
+      <h3>Diseño de su app</h3>
+      <label>Nombre del negocio (es el que se ve en la app y en el ticket)</label>
       <input id="ng-nombre" value="${this.esc(n.nombre)}">
+      <label>Paleta</label>
+      <div class="temas" id="ng-temas">
+        ${TEMAS.map(t => `
+          <button type="button" class="tema ${(n.tema || 'pizarra') === t.id ? 'activo' : ''}"
+                  data-tema="${t.id}" onclick="App.elegirTema('${t.id}')">
+            <span class="muestra" style="background:${t.primario}"></span>
+            <span class="muestra" style="background:${t.acento}"></span>
+            <span class="muestra" style="background:${t.fondo};border:1px solid #ddd"></span>
+            <b>${t.nombre}</b>
+          </button>`).join('')}
+      </div>
       <div class="fila">
         <div><label>Color principal</label><input id="ng-color1" type="color" value="${n.color_primario || '#263949'}"></div>
         <div><label>Color secundario</label><input id="ng-color2" type="color" value="${n.color_secundario || '#16222e'}"></div>
       </div>
-      <label>Logo (imagen cuadrada, máx. 400 KB)</label>
-      <input id="ng-logo" type="file" accept="image/*">
+      <div class="fila">
+        <div><label>Acento</label><input id="ng-color3" type="color" value="${n.color_acento || '#b8934a'}"></div>
+        <div><label>Fondo</label><input id="ng-color4" type="color" value="${n.color_fondo || '#f4f3f0'}"></div>
+      </div>
+
+      <h3>Logo del cliente</h3>
+      <p class="suave">Se ve en su barra, en su pantalla de entrada y —lo importante— se convierte
+        en el icono con el que instalan la app en el teléfono y en la lap.</p>
+      <div class="logo-fila">
+        <img id="ng-logo-vista" class="logo-vista"
+             src="${n.tiene_iconos ? `/api/publico/icono/${encodeURIComponent(n.codigo)}/192.png?v=${Date.now()}` : 'icons/icon-192.png'}" alt="">
+        <div>
+          <input id="ng-logo" type="file" accept="image/*" onchange="App.prepararLogo()">
+          <p class="suave" id="ng-logo-msg">Cuadrado se ve mejor. Se recorta y se achica solo.</p>
+          ${n.tiene_logo || n.tiene_iconos
+            ? `<button class="btn chico secundario" onclick="App.quitarLogo(${n.id})">Quitar logo y volver al genérico</button>` : ''}
+        </div>
+      </div>
+
       <div class="switch-linea"><span><b>Negocio activo</b> (apagar = cerrarle el acceso a mano)</span>
         <input type="checkbox" id="ng-activo" ${n.activo ? 'checked' : ''}></div>
-      <h3>Funciones habilitadas</h3>
-      ${FLAGS.map(([k, txt]) => `
-        <div class="switch-linea"><span>${txt}</span>
+
+      <h3>Funciones que tiene contratadas</h3>
+      <p class="suave">Lo que apagues aquí desaparece de su menú y además queda bloqueado en el
+        servidor, no solo escondido.</p>
+      ${FLAGS.map(([k, txt, ayuda]) => `
+        <div class="switch-linea">
+          <span>${txt}<br><span class="suave">${ayuda}</span></span>
           <input type="checkbox" id="fl-${k}" ${n.flags[k] !== false ? 'checked' : ''}></div>`).join('')}
       <button class="btn" onclick="App.guardarNegocio(${n.id})">Guardar cambios</button>
 
       <h3>${this.ico('usuarios')} Usuarios de este negocio</h3>
       <div id="ng-usuarios" class="lista-simple">Cargando…</div>
-      <div class="fila" style="margin-top:.7rem">
+      <h3>+ Agregar usuario</h3>
+      <div class="fila">
         <input id="nu-nombre" placeholder="Nombre">
         <input id="nu-usuario" placeholder="usuario" autocapitalize="none">
       </div>
@@ -938,15 +1243,77 @@ const App = {
         <select id="nu-rol"><option value="empleado">Empleado</option><option value="dueno">Dueño</option></select>
       </div>
       <button class="btn chico secundario" style="margin-top:.6rem" onclick="App.crearUsuarioNegocio(${n.id})">+ Agregar usuario</button>
-
-      <h3>Restablecer contraseña</h3>
-      <div class="fila">
-        <input id="rp-usuario" placeholder="usuario">
-        <input id="rp-pass" placeholder="nueva contraseña">
-      </div>
-      <button class="btn chico secundario" style="margin-top:.6rem" onclick="App.resetPass(${n.id})">Restablecer</button>
       <div id="ng-msg"></div>`);
     this.cargarUsuariosNegocio(id);
+  },
+
+  /** Aplica una paleta a los cuatro selectores de color del panel. */
+  elegirTema(idTema) {
+    const t = temaPorId(idTema);
+    this._temaElegido = t.id;
+    this.$('#ng-color1').value = t.primario;
+    this.$('#ng-color2').value = t.secundario;
+    this.$('#ng-color3').value = t.acento;
+    this.$('#ng-color4').value = t.fondo;
+    document.querySelectorAll('#ng-temas .tema').forEach(b =>
+      b.classList.toggle('activo', b.dataset.tema === t.id));
+  },
+
+  /**
+   * Del logo que sube el superadmin salen tres cosas: la imagen chica para la
+   * barra y los dos iconos (192 y 512) que usa el sistema operativo al
+   * instalar la app. Se recortan aquí, en el navegador, porque el servidor no
+   * tiene con qué procesar imágenes.
+   */
+  async prepararLogo() {
+    const file = this.$('#ng-logo').files[0];
+    const msg = this.$('#ng-logo-msg');
+    if (!file) return;
+    if (file.size > 4 * 1024 * 1024) {
+      this._iconosNuevos = null;
+      return (msg.innerHTML = '<span style="color:var(--error)">Esa imagen pesa más de 4 MB, usa una más chica.</span>');
+    }
+    msg.textContent = 'Preparando el logo…';
+    try {
+      const img = await new Promise((ok, mal) => {
+        const i = new Image();
+        i.onload = () => ok(i);
+        i.onerror = () => mal(new Error('No se pudo leer la imagen'));
+        i.src = URL.createObjectURL(file);
+      });
+      const fondo = this.$('#ng-color4').value || '#ffffff';
+      const cuadrar = (lado, conFondo) => {
+        const c = document.createElement('canvas');
+        c.width = c.height = lado;
+        const x = c.getContext('2d');
+        if (conFondo) { x.fillStyle = fondo; x.fillRect(0, 0, lado, lado); }
+        // Se ajusta dentro del cuadro sin deformar (nada de logos estirados)
+        const escala = Math.min(lado / img.width, lado / img.height) * (conFondo ? 0.86 : 1);
+        const an = img.width * escala, al = img.height * escala;
+        x.imageSmoothingQuality = 'high';
+        x.drawImage(img, (lado - an) / 2, (lado - al) / 2, an, al);
+        return c.toDataURL('image/png');
+      };
+      this._iconosNuevos = {
+        logo: cuadrar(256, false),
+        icono_192: cuadrar(192, true),
+        icono_512: cuadrar(512, true),
+      };
+      this.$('#ng-logo-vista').src = this._iconosNuevos.icono_192;
+      msg.textContent = 'Listo. Se guarda al presionar "Guardar cambios".';
+    } catch (e) {
+      this._iconosNuevos = null;
+      msg.innerHTML = `<span style="color:var(--error)">${this.esc(e.message)}</span>`;
+    }
+  },
+
+  async quitarLogo(id) {
+    try {
+      await API.put('/admin/negocios/' + id, { quitar_logo: true });
+      this.avisar('Logo quitado: vuelve al icono genérico');
+      this.cerrarModal();
+      this.cargarNegocios();
+    } catch (e) { this.avisar(e.message, true); }
   },
 
   async cargarUsuariosNegocio(id) {
@@ -954,11 +1321,58 @@ const App = {
       const us = await API.get(`/admin/negocios/${id}/usuarios`);
       const el = this.$('#ng-usuarios');
       if (!el) return;
+      this._usuariosNegocio = us;
       el.innerHTML = us.length ? us.map(u =>
-        `<div><span>${this.esc(u.nombre)} <span class="suave">(${this.esc(u.usuario)} · ${u.rol})</span></span>
-           <span class="suave">${u.activo ? '' : 'inactivo'}</span></div>`).join('')
+        `<div>
+           <span>${this.esc(u.nombre)}
+             <span class="suave">(${this.esc(u.usuario)} · ${u.rol === 'dueno' ? 'dueño' : 'empleado'})</span>
+             ${u.activo ? '' : '<span class="etiqueta chica" style="background:var(--error)">sin acceso</span>'}</span>
+           <button class="btn chico secundario" onclick="App.editarUsuario(${id},${u.id})">Editar</button>
+         </div>`).join('')
         : '<p class="suave">Sin usuarios.</p>';
     } catch (e) { /* el modal pudo cerrarse */ }
+  },
+
+  /** Cambiar nombre, usuario, papel, contraseña o el acceso de una persona. */
+  editarUsuario(negocioId, uid) {
+    const u = (this._usuariosNegocio || []).find(x => x.id === uid);
+    if (!u) return;
+    this.modal(`
+      <h3>${this.ico('usuarios')} ${this.esc(u.nombre)}</h3>
+      <label>Nombre</label>
+      <input id="eu-nombre" value="${this.esc(u.nombre)}">
+      <div class="fila">
+        <div><label>Usuario para entrar</label>
+          <input id="eu-usuario" value="${this.esc(u.usuario)}" autocapitalize="none"></div>
+        <div><label>Papel</label>
+          <select id="eu-rol">
+            <option value="empleado" ${u.rol === 'empleado' ? 'selected' : ''}>Empleado (solo vende)</option>
+            <option value="dueno" ${u.rol === 'dueno' ? 'selected' : ''}>Dueño (todo)</option>
+          </select></div>
+      </div>
+      <label>Contraseña nueva (déjala vacía para no cambiarla)</label>
+      <input id="eu-pass" placeholder="mínimo 6 caracteres">
+      <div class="switch-linea"><span><b>Puede entrar</b></span>
+        <input type="checkbox" id="eu-activo" ${u.activo ? 'checked' : ''}></div>
+      <button class="btn" onclick="App.guardarUsuario(${negocioId},${uid})">Guardar</button>
+      <button class="btn secundario" onclick="App.editarNegocio(${negocioId})">Volver</button>
+      <div id="eu-msg"></div>`);
+  },
+
+  async guardarUsuario(negocioId, uid) {
+    const body = {
+      nombre: this.$('#eu-nombre').value,
+      usuario: this.$('#eu-usuario').value,
+      rol: this.$('#eu-rol').value,
+      activo: this.$('#eu-activo').checked,
+    };
+    const pass = this.$('#eu-pass').value;
+    if (pass) body.password = pass;
+    try {
+      await API.put(`/admin/negocios/${negocioId}/usuarios/${uid}`, body);
+      this.avisar('Usuario actualizado');
+      this.editarNegocio(negocioId);
+    } catch (e) { this.$('#eu-msg').innerHTML = `<div class="msg-error">${this.esc(e.message)}</div>`; }
   },
 
   async crearUsuarioNegocio(id) {
@@ -991,13 +1405,19 @@ const App = {
 
   async guardarNegocio(id) {
     const flags = {};
-    for (const k of ['inventario', 'reportes', 'whatsapp']) flags[k] = this.$('#fl-' + k).checked;
+    for (const k of ['compras', 'inventario', 'corte', 'reportes', 'precios', 'empleados', 'whatsapp']) {
+      const el = this.$('#fl-' + k);
+      if (el) flags[k] = el.checked;
+    }
     const body = {
       activo: this.$('#ng-activo').checked,
       flags,
       nombre: this.$('#ng-nombre').value || null,
+      tema: this._temaElegido || null,
       color_primario: this.$('#ng-color1').value,
       color_secundario: this.$('#ng-color2').value,
+      color_acento: this.$('#ng-color3').value,
+      color_fondo: this.$('#ng-color4').value,
       precio_mensual: parseFloat(this.$('#ng-precio').value) || 0,
       estado: this.$('#ng-estado').value,
       fecha_corte: this.$('#ng-corte').value || null,
@@ -1006,29 +1426,14 @@ const App = {
       whatsapp_contacto: this.$('#ng-wa').value,
       notas_internas: this.$('#ng-notas').value
     };
-    const file = this.$('#ng-logo').files[0];
-    if (file) {
-      if (file.size > 400 * 1024) return this.avisar('El logo debe pesar menos de 400 KB', true);
-      body.logo = await new Promise(res => {
-        const fr = new FileReader();
-        fr.onload = () => res(fr.result);
-        fr.readAsDataURL(file);
-      });
-    }
+    if (this._iconosNuevos) Object.assign(body, this._iconosNuevos);
     try {
       await API.put('/admin/negocios/' + id, body);
+      this._iconosNuevos = null;
+      this._temaElegido = null;
       this.avisar('Negocio actualizado');
       this.cerrarModal();
       this.cargarNegocios();
-    } catch (e) { this.$('#ng-msg').innerHTML = `<div class="msg-error">${this.esc(e.message)}</div>`; }
-  },
-
-  async resetPass(id) {
-    try {
-      await API.post(`/admin/negocios/${id}/reset-password`, {
-        usuario: this.$('#rp-usuario').value, password: this.$('#rp-pass').value
-      });
-      this.avisar('Contraseña restablecida');
     } catch (e) { this.$('#ng-msg').innerHTML = `<div class="msg-error">${this.esc(e.message)}</div>`; }
   },
 
@@ -1185,4 +1590,37 @@ const App = {
 };
 
 window.App = App;
+
+/* El navegador avisa cuando la app ya cumple para instalarse: se guarda el
+   aviso para poder ofrecer el botón desde "Más". */
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  App._instalador = e;
+  if (App.state && App.state.vista === 'mas') App.vistaMas();
+});
+window.addEventListener('appinstalled', () => { App._instalador = null; });
+
+/* Versión nueva instalada. Si la caja está desocupada se recarga sola; si hay
+   una venta a medias, jamás: primero se cobra. */
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('message', (e) => {
+    if (!e.data || e.data.tipo !== 'actualizado') return;
+    const ocupado = (App.state.carrito || []).length > 0 || !!document.getElementById('modal');
+    if (ocupado) return App.avisar('Hay una versión nueva: se aplicará al cerrar y volver a abrir.');
+    App.avisar('Actualizando la app…');
+    setTimeout(() => location.reload(), 1200);
+  });
+}
+
+/* Último parachoques: un error que nadie atrapó no debe dejar la pantalla
+   en blanco con la caja abierta. */
+window.addEventListener('error', (e) => console.error('[app]', e.message));
+window.addEventListener('unhandledrejection', (e) => {
+  console.error('[app] promesa sin atrapar', e.reason);
+  if (window.App && App.state && App.state.user && API.esDeRed(e.reason)) {
+    App.avisar('Sin conexión con el servidor. Puedes seguir vendiendo.', true);
+    e.preventDefault();
+  }
+});
+
 App.iniciar();

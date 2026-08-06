@@ -14,7 +14,9 @@ const { crearCatalogo } = require('../seed');
 const { estadoSuscripcion, corteEnDias } = require('../suscripcion');
 const { confirmarPago, cobroManual, rechazarPago } = require('../pagos');
 
-const router = express.Router();
+const { seguro } = require('../asincrono');
+
+const router = seguro(express.Router());
 router.use(requiereAuth, requiereRol('superadmin'));
 
 const num = (v, def = 0) => (Number.isFinite(Number(v)) ? Number(v) : def);
@@ -34,6 +36,9 @@ router.get('/negocios', async (req, res) => {
   try {
     const lista = await rows(
       `SELECT n.id, n.codigo, n.nombre, n.color_primario, n.color_secundario, n.activo,
+              n.tema, n.color_acento, n.color_fondo,
+              (n.logo IS NOT NULL) AS tiene_logo,
+              (n.icono_512 IS NOT NULL) AS tiene_iconos,
               n.flags, n.creado_en, n.estado, n.fecha_corte, n.dias_gracia,
               n.precio_mensual::float8 AS precio_mensual,
               n.contacto_nombre, n.whatsapp_contacto, n.notas_internas,
@@ -106,6 +111,11 @@ router.put('/negocios/:id', async (req, res) => {
     }
     const estado = ['PRUEBA', 'ACTIVA', 'CANCELADA'].includes(b.estado) ? b.estado : null;
 
+    // Quitarle el logo es un acto explícito: mandar `logo: null` no borra nada
+    // (COALESCE lo ignora), hay que pedir `quitar_logo`.
+    const quitar = b.quitar_logo === true;
+    const png = (v) => (typeof v === 'string' && /^data:image\/png;base64,/.test(v) ? v : null);
+
     await query(
       `UPDATE negocios SET
          nombre = COALESCE($1, nombre),
@@ -113,21 +123,29 @@ router.put('/negocios/:id', async (req, res) => {
          flags = COALESCE($3, flags),
          color_primario = COALESCE($4, color_primario),
          color_secundario = COALESCE($5, color_secundario),
-         logo = COALESCE($6, logo),
+         logo = CASE WHEN $15::boolean THEN NULL ELSE COALESCE($6, logo) END,
          precio_mensual = COALESCE($7, precio_mensual),
          estado = COALESCE($8, estado),
          fecha_corte = COALESCE($9::date, fecha_corte),
          dias_gracia = COALESCE($10, dias_gracia),
          contacto_nombre = COALESCE($11, contacto_nombre),
          whatsapp_contacto = COALESCE($12, whatsapp_contacto),
-         notas_internas = COALESCE($13, notas_internas)
-       WHERE id = $14`,
+         notas_internas = COALESCE($13, notas_internas),
+         tema = COALESCE($14, tema),
+         color_acento = COALESCE($16, color_acento),
+         color_fondo = COALESCE($17, color_fondo),
+         icono_192 = CASE WHEN $15::boolean THEN NULL ELSE COALESCE($18, icono_192) END,
+         icono_512 = CASE WHEN $15::boolean THEN NULL ELSE COALESCE($19, icono_512) END
+       WHERE id = $20`,
       [b.nombre ?? null, typeof b.activo === 'boolean' ? b.activo : null, flags,
        b.color_primario ?? null, b.color_secundario ?? null, b.logo ?? null,
        b.precio_mensual === undefined ? null : num(b.precio_mensual, 0), estado,
        b.fecha_corte || null,
        b.dias_gracia === undefined ? null : num(b.dias_gracia, 5),
        b.contacto_nombre ?? null, b.whatsapp_contacto ?? null, b.notas_internas ?? null,
+       b.tema ?? null, quitar,
+       b.color_acento ?? null, b.color_fondo ?? null,
+       png(b.icono_192), png(b.icono_512),
        req.params.id]);
     res.json({ ok: true });
   } catch (e) { fallo(res, e, 'Error al guardar el negocio'); }
@@ -163,6 +181,62 @@ router.post('/negocios/:id/usuarios', async (req, res) => {
        rol === 'dueno' ? 'dueno' : 'empleado']);
     res.json({ ok: true, usuario: u });
   } catch (e) { fallo(res, e, 'Error al crear el usuario'); }
+});
+
+/**
+ * Editar un usuario ya existente del cliente: cómo se llama, con qué usuario
+ * entra, si es dueño o empleado y si sigue teniendo acceso. Es lo que se pide
+ * por teléfono ("ya no trabaja aquí", "quiero que mi hijo también entre").
+ */
+router.put('/negocios/:id/usuarios/:uid', async (req, res) => {
+  try {
+    const b = req.body || {};
+    const u = await one('SELECT id, usuario, rol FROM usuarios WHERE id = $1 AND negocio_id = $2',
+      [req.params.uid, req.params.id]);
+    if (!u) return res.status(404).json({ error: 'Usuario no encontrado en ese negocio' });
+
+    let nuevoUsuario = null;
+    if (b.usuario !== undefined) {
+      nuevoUsuario = String(b.usuario).trim().toLowerCase();
+      if (!/^[a-z0-9._-]{3,20}$/.test(nuevoUsuario)) {
+        return res.status(400).json({ error: 'El usuario debe tener de 3 a 20 letras o números, sin espacios' });
+      }
+      if (nuevoUsuario !== u.usuario
+          && await one('SELECT id FROM usuarios WHERE usuario = $1', [nuevoUsuario])) {
+        return res.status(400).json({ error: 'Ese nombre de usuario ya existe' });
+      }
+    }
+    const rol = ['dueno', 'empleado'].includes(b.rol) ? b.rol : null;
+
+    // No dejar al negocio sin ningún dueño activo: si no, nadie podría entrar
+    // a configurar precios ni a subir el comprobante de pago.
+    if (u.rol === 'dueno' && (rol === 'empleado' || b.activo === false)) {
+      const otros = await one(
+        `SELECT COUNT(*)::int AS n FROM usuarios
+          WHERE negocio_id = $1 AND rol = 'dueno' AND activo = TRUE AND id <> $2`,
+        [req.params.id, u.id]);
+      if (!otros.n) return res.status(400).json({ error: 'Es el único dueño activo: primero nombra a otro dueño' });
+    }
+
+    await query(
+      `UPDATE usuarios SET
+         nombre = COALESCE($1, nombre),
+         usuario = COALESCE($2, usuario),
+         rol = COALESCE($3, rol),
+         activo = COALESCE($4, activo)
+       WHERE id = $5`,
+      [b.nombre ?? null, nuevoUsuario, rol,
+       typeof b.activo === 'boolean' ? b.activo : null, u.id]);
+
+    if (b.password) {
+      if (String(b.password).length < 6) {
+        return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres' });
+      }
+      await query('UPDATE usuarios SET hash = $1 WHERE id = $2',
+        [bcrypt.hashSync(String(b.password), 10), u.id]);
+    }
+    res.json({ ok: true });
+  } catch (e) { fallo(res, e, 'Error al guardar el usuario'); }
 });
 
 router.post('/negocios/:id/reset-password', async (req, res) => {

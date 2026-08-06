@@ -74,6 +74,8 @@ input, select, textarea {
   border-radius: 10px; font-size: 1rem; background: #fff; color: var(--texto);
 }
 input:focus, select:focus { outline: none; border-color: var(--primario); }
+input[type=color] { height: 46px; padding: .25rem; cursor: pointer; }
+input[type=file] { padding: .5rem; background: var(--fondo); font-size: .85rem; }
 .fila { display: flex; gap: .6rem; }
 .fila > * { flex: 1; }
 
@@ -103,6 +105,12 @@ input:focus, select:focus { outline: none; border-color: var(--primario); }
 }
 .login-caja .marca .sello .ico { width: 36px; height: 36px; }
 .login-caja .marca h1 { font-size: 1.35rem; color: var(--primario); letter-spacing: .02em; }
+.login-caja .marca .logo-marca {
+  display: block; margin: 0 auto .7rem; max-width: 150px; max-height: 150px;
+  border-radius: 18px; object-fit: contain;
+}
+.login-caja .marca .logo-marca.ancho { max-width: 290px; max-height: 110px; border-radius: 0; }
+.login-caja .cinta { border-radius: 10px; margin-bottom: .9rem; border: none; }
 
 /* ===== POS ===== */
 .grid-piezas { display: grid; grid-template-columns: repeat(auto-fill, minmax(105px, 1fr)); gap: .55rem; }
@@ -192,6 +200,23 @@ tr.alerta td { color: var(--error); font-weight: 700; }
   background: var(--primario); color: #fff; border: none; border-radius: 8px;
   padding: .35rem .7rem; font-weight: 700; font-size: .78rem; cursor: pointer; flex-shrink: 0;
 }
+/* ===== Elegir el diseño de cada cliente (panel de superadmin) ===== */
+.temas { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: .5rem; margin: .3rem 0 .8rem; }
+.tema {
+  display: flex; align-items: center; gap: .3rem; cursor: pointer;
+  background: var(--tarjeta); border: 2px solid var(--borde); border-radius: 12px;
+  padding: .5rem .6rem; font: inherit; font-size: .78rem; text-align: left;
+}
+.tema.activo { border-color: var(--primario); box-shadow: 0 0 0 2px rgba(0,0,0,.05); }
+.tema b { flex: 1; font-size: .75rem; }
+.tema .muestra { width: 14px; height: 14px; border-radius: 50%; flex-shrink: 0; }
+.logo-fila { display: flex; gap: .8rem; align-items: flex-start; margin-bottom: .6rem; }
+.logo-fila > div { flex: 1; }
+.logo-vista {
+  width: 76px; height: 76px; border-radius: 16px; object-fit: contain;
+  background: #fff; border: 1px solid var(--borde); flex-shrink: 0;
+}
+
 .etiqueta {
   display: inline-block; color: #fff; font-size: .68rem; font-weight: 800;
   letter-spacing: .04em; padding: .18rem .5rem; border-radius: 99px; vertical-align: middle;

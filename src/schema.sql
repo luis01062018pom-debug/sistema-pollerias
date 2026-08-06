@@ -155,3 +155,26 @@ CREATE TABLE IF NOT EXISTS contabilidad_saas (
 
 CREATE INDEX IF NOT EXISTS idx_pagos_negocio ON pagos_suscripcion (negocio_id, creado_en DESC);
 CREATE INDEX IF NOT EXISTS idx_pagos_estado ON pagos_suscripcion (estado);
+
+/* =====================================================================
+   IMAGEN DE CADA CLIENTE
+   Cada pollería se ve distinta: su paleta, su logo y —lo importante— SUS
+   iconos, para que al instalar la app en el teléfono o en la lap aparezca
+   su marca y no la nuestra. Los iconos se guardan ya recortados a 192 y
+   512 px (los genera el navegador al subir el logo) porque el servidor no
+   tiene librería de imágenes y Railway no debe gastar CPU en eso.
+   ===================================================================== */
+ALTER TABLE negocios ADD COLUMN IF NOT EXISTS tema TEXT NOT NULL DEFAULT 'pizarra';
+ALTER TABLE negocios ADD COLUMN IF NOT EXISTS color_acento TEXT DEFAULT '#b8934a';
+ALTER TABLE negocios ADD COLUMN IF NOT EXISTS color_fondo TEXT DEFAULT '#f4f3f0';
+ALTER TABLE negocios ADD COLUMN IF NOT EXISTS icono_192 TEXT;
+ALTER TABLE negocios ADD COLUMN IF NOT EXISTS icono_512 TEXT;
+
+/* Índices de consulta. Sin ellos, una pollería con meses de ventas hace que
+   el corte y los reportes recorran la tabla entera cada vez (eso es el "lag"
+   que se siente en el teléfono a media venta). */
+CREATE INDEX IF NOT EXISTS idx_ventas_negocio_fecha ON ventas (negocio_id, fecha DESC);
+CREATE INDEX IF NOT EXISTS idx_venta_items_venta ON venta_items (venta_id);
+CREATE INDEX IF NOT EXISTS idx_compras_negocio_fecha ON compras (negocio_id, fecha DESC);
+CREATE INDEX IF NOT EXISTS idx_piezas_negocio ON piezas (negocio_id, activo);
+CREATE INDEX IF NOT EXISTS idx_usuarios_negocio ON usuarios (negocio_id);

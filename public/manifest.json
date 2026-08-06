@@ -1,14 +1,25 @@
 {
-  "name": "Punto de Venta Pollería",
-  "short_name": "Pollería",
-  "description": "Punto de venta, despiece automático, inventario y corte de caja para pollerías",
+  "id": "/",
+  "name": "FRESQUIPOLLO — Punto de Venta",
+  "short_name": "FRESQUIPOLLO",
+  "description": "Punto de venta, despiece automático, inventario y corte de caja para pollerías. Funciona sin internet.",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#f4f3f0",
-  "theme_color": "#263949",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "portrait",
+  "background_color": "#fff6ee",
+  "theme_color": "#e35205",
   "lang": "es",
+  "dir": "ltr",
+  "categories": ["business", "productivity", "shopping"],
   "icons": [
-    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
-    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Vender", "short_name": "Vender", "url": "/?ir=vender" },
+    { "name": "Corte de caja", "short_name": "Corte", "url": "/?ir=corte" }
   ]
 }

@@ -3,8 +3,9 @@ const bcrypt = require('bcryptjs');
 const { one } = require('../db');
 const { firmar, requiereAuth } = require('../auth');
 const { estadoSuscripcion, mensajeSuscripcion } = require('../suscripcion');
+const { seguro } = require('../asincrono');
 
-const router = express.Router();
+const router = seguro(express.Router());
 
 router.post('/login', async (req, res) => {
   try {
@@ -34,7 +35,8 @@ router.get('/bootstrap', requiereAuth, async (req, res) => {
     let suscripcion = null;
     if (req.user.negocio_id) {
       negocio = await one(
-        `SELECT id, codigo, nombre, logo, color_primario, color_secundario, ticket_direccion,
+        `SELECT id, codigo, nombre, logo, color_primario, color_secundario,
+                tema, color_acento, color_fondo, ticket_direccion,
                 ticket_telefono, ticket_leyenda, whatsapp, peso_promedio_g,
                 costo_kilo::float8 AS costo_kilo, flags, activo,
                 estado, fecha_corte, dias_gracia, precio_mensual::float8 AS precio_mensual

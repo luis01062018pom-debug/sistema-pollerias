@@ -3,8 +3,9 @@ const bcrypt = require('bcryptjs');
 const { query, one, rows } = require('../db');
 const { requiereAuth, requiereRol } = require('../auth');
 const { estadoSuscripcion, mensajeSuscripcion, SUSPENDIDOS, SOLO_VENTA } = require('../suscripcion');
+const { seguro } = require('../asincrono');
 
-const router = express.Router();
+const router = seguro(express.Router());
 router.use(requiereAuth);
 
 // Todas estas rutas operan sobre el negocio del usuario autenticado
@@ -48,6 +49,34 @@ router.use(async (req, res, next) => {
     console.error(e);
     res.status(500).json({ error: 'Error del servidor' });
   }
+});
+
+/**
+ * Funciones habilitadas por cliente. Cada pollería contrata lo que necesita:
+ * unas solo quieren cobrar, otras llevan inventario y reportes. Apagar la
+ * función en el panel tiene que apagarla DE VERDAD, no solo esconder el botón
+ * (si no, basta con teclear la ruta a mano).
+ */
+const FUNCION_POR_RUTA = [
+  [/^\/compras/, 'compras'],
+  [/^\/inventario/, 'inventario'],
+  [/^\/corte/, 'corte'],
+  [/^\/reportes/, 'reportes'],
+  [/^\/empleados/, 'empleados'],
+  [/^\/piezas/, 'precios'],
+];
+
+router.use(async (req, res, next) => {
+  if (!req.user.negocio_id) return next();
+  const par = FUNCION_POR_RUTA.find(([r]) => r.test(req.path));
+  if (!par) return next();
+  const n = await one('SELECT flags FROM negocios WHERE id = $1', [req.user.negocio_id]);
+  let flags = {};
+  try { flags = JSON.parse((n && n.flags) || '{}'); } catch (e) { flags = {}; }
+  if (flags[par[1]] === false) {
+    return res.status(403).json({ error: 'Esa función no está incluida en tu plan. Habla con soporte.' });
+  }
+  next();
 });
 
 /* ============ PIEZAS / CATÁLOGO ============ */

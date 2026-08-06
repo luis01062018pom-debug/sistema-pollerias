@@ -9,8 +9,9 @@ const express = require('express');
 const { query, one, rows } = require('../db');
 const { requiereAuth, requiereRol } = require('../auth');
 const { estadoSuscripcion, mensajeSuscripcion } = require('../suscripcion');
+const { seguro } = require('../asincrono');
 
-const router = express.Router();
+const router = seguro(express.Router());
 router.use(requiereAuth);
 
 const MAX_BYTES = 1_500_000;   // 1.5 MB: una foto de comprobante comprimida sobra
