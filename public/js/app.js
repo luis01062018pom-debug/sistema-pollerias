@@ -1590,6 +1590,15 @@ const App = {
 
 window.App = App;
 
+/* Almacenamiento permanente: le pide al navegador que NO borre lo guardado
+   de esta app cuando ande corto de espacio. Aquí adentro viven las ventas
+   hechas sin internet que todavía no suben, y esas no se pueden perder. */
+if (navigator.storage && navigator.storage.persist) {
+  navigator.storage.persisted()
+    .then((ya) => (ya ? true : navigator.storage.persist()))
+    .catch(() => false);
+}
+
 /* El navegador avisa cuando la app ya cumple para instalarse: se guarda el
    aviso para poder ofrecer el botón desde "Más". */
 window.addEventListener('beforeinstallprompt', (e) => {
