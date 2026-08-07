@@ -5,9 +5,9 @@ const CACHE = 'polleria-v7';
 const ARCHIVOS = [
   '/', '/index.html', '/css/app.css', '/js/temas.js', '/js/api.js', '/js/app.js',
   '/manifest.json',
-  '/icons/icon-192.png', '/icons/icon-512.png', '/icons/icon-maskable-512.png',
-  '/icons/apple-touch-icon.png', '/icons/favicon-32.png', '/icons/favicon-64.png',
-  '/icons/logo.svg', '/icons/logo-horizontal.svg',
+  '/icons/icon-192.png?v=2', '/icons/icon-512.png?v=2', '/icons/icon-maskable-512.png?v=2',
+  '/icons/apple-touch-icon.png?v=2', '/icons/favicon-32.png?v=2', '/icons/favicon-64.png?v=2',
+  '/icons/logo.svg?v=2', '/icons/logo-horizontal.svg?v=2',
 ];
 
 self.addEventListener('install', (e) => {

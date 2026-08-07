@@ -112,7 +112,7 @@ const App = {
     const lnk = document.getElementById('lnk-manifest');
     if (lnk) lnk.setAttribute('href', 'manifest.json');
     const apple = document.getElementById('lnk-apple');
-    if (apple) apple.setAttribute('href', 'icons/apple-touch-icon.png');
+    if (apple) apple.setAttribute('href', 'icons/apple-touch-icon.png?v=2');
     try { localStorage.removeItem('marca'); } catch (e) {}
   },
 
@@ -150,7 +150,7 @@ const App = {
     document.getElementById('app').innerHTML = `
       <div class="login-wrap"><div class="login-caja">
         <div class="marca">
-          <img class="logo-marca ancho" src="icons/logo-horizontal.svg" alt="Sistema Pollerías">
+          <img class="logo-marca ancho" src="icons/logo-horizontal.svg?v=2" alt="Sistema Pollerías">
         </div>
         ${pendientes > 0 ? `<div class="cinta">Tienes ${pendientes} venta(s) guardadas en este equipo.
            Entra para que se suban.</div>` : ''}
@@ -204,7 +204,7 @@ const App = {
     document.getElementById('app').innerHTML = `
       <div class="topbar">
         ${esAdmin ? this.ico('admin', 'g')
-          : `<img class="logo" src="${n && n.logo ? n.logo : 'icons/icon-192.png'}" alt="">`}
+          : `<img class="logo" src="${n && n.logo ? n.logo : 'icons/icon-192.png?v=2'}" alt="">`}
         <div class="nombre">${this.esc(esAdmin ? 'Panel de administración' : (n ? n.nombre : ''))}</div>
         <span id="estado-red"></span>
         <div class="usuario">${this.esc(this.state.user.nombre)}<br>
@@ -1209,7 +1209,7 @@ const App = {
         en el icono con el que instalan la app en el teléfono y en la lap.</p>
       <div class="logo-fila">
         <img id="ng-logo-vista" class="logo-vista"
-             src="${n.tiene_iconos ? `/api/publico/icono/${encodeURIComponent(n.codigo)}/192.png?v=${Date.now()}` : 'icons/icon-192.png'}" alt="">
+             src="${n.tiene_iconos ? `/api/publico/icono/${encodeURIComponent(n.codigo)}/192.png?v=${Date.now()}` : 'icons/icon-192.png?v=2'}" alt="">
         <div>
           <input id="ng-logo" type="file" accept="image/*" onchange="App.prepararLogo()">
           <p class="suave" id="ng-logo-msg">Cuadrado se ve mejor. Se recorta y se achica solo.</p>

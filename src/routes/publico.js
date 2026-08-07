@@ -12,8 +12,10 @@ const { seguro } = require('../asincrono');
 
 const router = seguro(express.Router());
 
-const ICONO_DEFECTO_192 = '/icons/icon-192.png';
-const ICONO_DEFECTO_512 = '/icons/icon-512.png';
+// El `?v=` no es adorno: los iconos se sirven con caché larga, y sin cambiarle
+// el nombre al archivo el navegador seguiría enseñando el logo viejo por horas.
+const ICONO_DEFECTO_192 = '/icons/icon-192.png?v=2';
+const ICONO_DEFECTO_512 = '/icons/icon-512.png?v=2';
 
 function limpiaCodigo(c) {
   return String(c || '').trim().toUpperCase().slice(0, 40);
