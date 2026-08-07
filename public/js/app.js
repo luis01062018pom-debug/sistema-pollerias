@@ -63,8 +63,10 @@ const App = {
 
   /* ===== Arranque ===== */
   async iniciar() {
-    this.aplicarMarca(this.marcaGuardada()); // que el login ya traiga su cara
-    if (!API.token) return this.vistaLogin();
+    // Antes de entrar, la app es del SISTEMA, no de ningún cliente: nombre
+    // genérico, icono genérico y manifest genérico. La marca de la pollería
+    // aparece al iniciar sesión, nunca en la puerta de entrada.
+    if (!API.token) { this.marcaGenerica(); return this.vistaLogin(); }
     try {
       const boot = await API.bootstrap();
       this.state.user = boot.user;
@@ -89,6 +91,7 @@ const App = {
              <h2>Negocio suspendido</h2><p class="suave">${this.esc(e.message)}</p>
              <button class="btn" onclick="App.salir()">Salir</button></div></div>`;
       } else {
+        this.marcaGenerica();
         this.vistaLogin(API.esDeRed(e)
           ? 'Sin internet y sin datos guardados en este equipo. Conéctate una vez para dejar la app lista.'
           : e.message);
@@ -102,10 +105,15 @@ const App = {
     return ['vender', 'corte', 'compras', 'inventario'].includes(v) ? v : null;
   },
 
-  /* La marca del último negocio que entró en este equipo, para que el login y
-     el icono ya se vean suyos aunque todavía no haya sesión. */
-  marcaGuardada() {
-    try { return JSON.parse(localStorage.getItem('marca') || 'null'); } catch (e) { return null; }
+  /* Deja la app con la cara del sistema: la de la pantalla de entrada. */
+  marcaGenerica() {
+    document.title = 'Sistema Pollerías — Punto de Venta';
+    aplicarPaleta(TEMAS[0]);
+    const lnk = document.getElementById('lnk-manifest');
+    if (lnk) lnk.setAttribute('href', 'manifest.json');
+    const apple = document.getElementById('lnk-apple');
+    if (apple) apple.setAttribute('href', 'icons/apple-touch-icon.png');
+    try { localStorage.removeItem('marca'); } catch (e) {}
   },
 
   aplicarMarca(n) {
@@ -126,32 +134,23 @@ const App = {
       if (apple && n.tiene_iconos !== false) {
         apple.setAttribute('href', `/api/publico/icono/${encodeURIComponent(n.codigo)}/192.png`);
       }
-      try {
-        localStorage.setItem('marca', JSON.stringify({
-          codigo: n.codigo, nombre: n.nombre, logo: n.logo || null,
-          color_primario: n.color_primario, color_secundario: n.color_secundario,
-          color_acento: n.color_acento, color_fondo: n.color_fondo,
-        }));
-      } catch (e) { /* almacenamiento lleno: la marca es lo menos importante */ }
     }
   },
 
   salir() {
     API.setToken(null);
     API.olvidarBootstrap();
+    this.marcaGenerica();
     location.reload();
   },
 
   /* ===== Login ===== */
   vistaLogin(error) {
-    const m = this.marcaGuardada();
     const pendientes = API.colaPendiente();
     document.getElementById('app').innerHTML = `
       <div class="login-wrap"><div class="login-caja">
         <div class="marca">
-          ${m && m.logo
-            ? `<img class="logo-marca" src="${m.logo}" alt=""><h1>${this.esc(m.nombre || '')}</h1>`
-            : `<img class="logo-marca ancho" src="icons/logo-horizontal.svg" alt="FRESQUIPOLLO">`}
+          <img class="logo-marca ancho" src="icons/logo-horizontal.svg" alt="Sistema Pollerías">
         </div>
         ${pendientes > 0 ? `<div class="cinta">Tienes ${pendientes} venta(s) guardadas en este equipo.
            Entra para que se suban.</div>` : ''}
