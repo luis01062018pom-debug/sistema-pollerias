@@ -162,6 +162,11 @@ const App = {
           <button class="btn" onclick="App.login()">Entrar</button>
           ${error ? `<div class="msg-error">${this.esc(error)}</div>` : ''}
           <div id="lg-msg"></div>
+          <!-- Casi todos los "no me deja entrar" son esto: se escribe el nombre
+               del negocio o el de la persona en vez del usuario. -->
+          <p class="suave" style="margin-top:.8rem">El usuario es el nombre corto que te
+            dieron para entrar (por ejemplo <b>fresqui</b>), no el nombre del negocio ni
+            el tuyo. Si no lo recuerdas, pídelo por WhatsApp.</p>
         </div>
       </div></div>`;
     this.$('#lg-pass').addEventListener('keydown', e => { if (e.key === 'Enter') App.login(); });
