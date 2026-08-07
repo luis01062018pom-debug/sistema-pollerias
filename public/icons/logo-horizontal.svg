@@ -28,11 +28,11 @@
     </g>
   </g>
 
-  <text x="392" y="232" font-family="Verdana, DejaVu Sans, Arial, Helvetica, sans-serif"
-        font-size="112" font-weight="bold" letter-spacing="0.5">
-    <tspan fill="#F26505">FRESQUI</tspan><tspan fill="#D62027">POLLO</tspan>
-  </text>
-  <rect x="396" y="262" width="960" height="8" rx="4" fill="#F26505" opacity=".35"/>
-  <text x="398" y="322" font-family="Verdana, DejaVu Sans, Arial, Helvetica, sans-serif"
-        font-size="44" letter-spacing="7" fill="#8A4B12">PUNTO DE VENTA</text>
+  <text x="398" y="168" font-family="Verdana, DejaVu Sans, Arial, Helvetica, sans-serif"
+        font-size="58" font-weight="bold" letter-spacing="13" fill="#F26505">SISTEMA</text>
+  <text x="392" y="278" font-family="Verdana, DejaVu Sans, Arial, Helvetica, sans-serif"
+        font-size="110" font-weight="bold" letter-spacing="1" fill="#D62027">POLLERÍAS</text>
+  <rect x="396" y="306" width="740" height="8" rx="4" fill="#F26505" opacity=".35"/>
+  <text x="398" y="362" font-family="Verdana, DejaVu Sans, Arial, Helvetica, sans-serif"
+        font-size="42" letter-spacing="7" fill="#8A4B12">PUNTO DE VENTA</text>
 </svg>

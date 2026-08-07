@@ -47,8 +47,8 @@
     <!-- Cinta -->
     <rect x="30" y="392" width="452" height="70" rx="16" fill="url(#cintaM)"/>
     <rect x="41" y="403" width="430" height="48" rx="9" fill="none" stroke="#FFFFFF" stroke-width="4" opacity="0.42"/>
-    <text x="256" y="441" text-anchor="middle" fill="#FFFFFF"
+    <text x="256" y="439" text-anchor="middle" fill="#FFFFFF"
           font-family="Verdana, DejaVu Sans, Arial, Helvetica, sans-serif"
-          font-size="45" font-weight="bold" letter-spacing="1.2">FRESQUIPOLLO</text>
+          font-size="46" font-weight="bold" letter-spacing="2.5">POLLERÍAS</text>
   </g>
 </svg>

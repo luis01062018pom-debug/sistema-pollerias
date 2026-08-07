@@ -1,7 +1,7 @@
 {
   "id": "/",
-  "name": "FRESQUIPOLLO — Punto de Venta",
-  "short_name": "FRESQUIPOLLO",
+  "name": "Sistema Pollerías — Punto de Venta",
+  "short_name": "Pollerías",
   "description": "Punto de venta, despiece automático, inventario y corte de caja para pollerías. Funciona sin internet.",
   "start_url": "/",
   "scope": "/",
