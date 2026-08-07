@@ -1242,8 +1242,47 @@ const App = {
         <select id="nu-rol"><option value="empleado">Empleado</option><option value="dueno">Dueño</option></select>
       </div>
       <button class="btn chico secundario" style="margin-top:.6rem" onclick="App.crearUsuarioNegocio(${n.id})">+ Agregar usuario</button>
+
+      <h3 style="color:var(--error)">Dar de baja este cliente</h3>
+      <p class="suave">Deja de aparecer en el panel y nadie de esa pollería puede volver
+        a entrar. Si ya tiene ventas o pagos, el historial se conserva para que la
+        contabilidad siga cuadrando.</p>
+      <button class="btn secundario" style="border-color:var(--error);color:var(--error)"
+              onclick="App.confirmarEliminarNegocio(${n.id})">Eliminar ${this.esc(n.nombre)}</button>
       <div id="ng-msg"></div>`);
     this.cargarUsuariosNegocio(id);
+  },
+
+  /* Borrar un cliente por error sería feo de explicar: se pide escribir el
+     nombre completo, no un "¿estás seguro?" que se acepta sin leer. */
+  confirmarEliminarNegocio(id) {
+    const n = this._negocios.find(x => x.id === id);
+    if (!n) return;
+    this.modal(`
+      <h3 style="color:var(--error)">Eliminar ${this.esc(n.nombre)}</h3>
+      <p>Se va del panel y se le cierra el acceso a todos sus usuarios.
+        ${n.ventas_hoy > 0 || n.vendido_mes > 0
+          ? 'Como ya tiene movimientos, sus ventas y pagos <b>se conservan</b> en la contabilidad.'
+          : 'Como todavía no tiene ventas ni pagos, se borra por completo.'}</p>
+      <p class="suave">Esto no se puede deshacer desde el panel.</p>
+      <label>Escribe <b>${this.esc(n.nombre)}</b> para confirmar</label>
+      <input id="del-nombre" autocapitalize="none" placeholder="${this.esc(n.nombre)}">
+      <button class="btn" style="background:var(--error)" onclick="App.eliminarNegocio(${id})">
+        Sí, eliminar</button>
+      <button class="btn secundario" onclick="App.editarNegocio(${id})">Cancelar</button>
+      <div id="del-msg"></div>`);
+  },
+
+  async eliminarNegocio(id) {
+    try {
+      const r = await API.req('DELETE', '/admin/negocios/' + id,
+        { confirmacion: this.$('#del-nombre').value });
+      this.cerrarModal();
+      this.avisar(r.borrado === 'completo'
+        ? `${r.nombre} se eliminó por completo`
+        : `${r.nombre} se dio de baja; se conservaron ${r.ventas} venta(s) y ${r.pagos} pago(s)`);
+      this.cargarNegocios();
+    } catch (e) { this.$('#del-msg').innerHTML = `<div class="msg-error">${this.esc(e.message)}</div>`; }
   },
 
   /** Aplica una paleta a los cuatro selectores de color del panel. */
@@ -1321,12 +1360,15 @@ const App = {
       const el = this.$('#ng-usuarios');
       if (!el) return;
       this._usuariosNegocio = us;
+      // El usuario se muestra grande y aparte: es el dato que se dicta por
+      // teléfono cuando el cliente no puede entrar. La contraseña no se puede
+      // enseñar (se guarda cifrada, ni nosotros la vemos): se le pone una nueva.
       el.innerHTML = us.length ? us.map(u =>
         `<div>
-           <span>${this.esc(u.nombre)}
-             <span class="suave">(${this.esc(u.usuario)} · ${u.rol === 'dueno' ? 'dueño' : 'empleado'})</span>
+           <span><b>${this.esc(u.usuario)}</b>
+             <span class="suave">— ${this.esc(u.nombre)} · ${u.rol === 'dueno' ? 'dueño' : 'empleado'}</span>
              ${u.activo ? '' : '<span class="etiqueta chica" style="background:var(--error)">sin acceso</span>'}</span>
-           <button class="btn chico secundario" onclick="App.editarUsuario(${id},${u.id})">Editar</button>
+           <button class="btn chico secundario" onclick="App.editarUsuario(${id},${u.id})">Usuario y contraseña</button>
          </div>`).join('')
         : '<p class="suave">Sin usuarios.</p>';
     } catch (e) { /* el modal pudo cerrarse */ }
@@ -1349,13 +1391,31 @@ const App = {
             <option value="dueno" ${u.rol === 'dueno' ? 'selected' : ''}>Dueño (todo)</option>
           </select></div>
       </div>
-      <label>Contraseña nueva (déjala vacía para no cambiarla)</label>
-      <input id="eu-pass" placeholder="mínimo 6 caracteres">
+      <h3>Contraseña</h3>
+      <p class="suave">La contraseña guardada no se puede ver: se guarda cifrada y ni
+        nosotros la conocemos. Si el cliente no puede entrar, aquí se le pone una nueva
+        y se la dictas.</p>
+      <div class="fila">
+        <input id="eu-pass" placeholder="déjala vacía para no cambiarla">
+        <button class="btn chico secundario" onclick="App.generarPass()">Generar una</button>
+      </div>
       <div class="switch-linea"><span><b>Puede entrar</b></span>
         <input type="checkbox" id="eu-activo" ${u.activo ? 'checked' : ''}></div>
       <button class="btn" onclick="App.guardarUsuario(${negocioId},${uid})">Guardar</button>
       <button class="btn secundario" onclick="App.editarNegocio(${negocioId})">Volver</button>
       <div id="eu-msg"></div>`);
+  },
+
+  /* Una contraseña que se pueda dictar por teléfono sin equivocarse: sin
+     eñes, sin acentos y sin letras que se confunden (l/1, O/0). */
+  generarPass() {
+    const letras = 'abcdefghjkmnpqrstuvwxyz';
+    const numeros = '23456789';
+    let p = '';
+    for (let i = 0; i < 5; i++) p += letras[Math.floor(Math.random() * letras.length)];
+    for (let i = 0; i < 3; i++) p += numeros[Math.floor(Math.random() * numeros.length)];
+    this.$('#eu-pass').value = p;
+    this.$('#eu-pass').type = 'text';
   },
 
   async guardarUsuario(negocioId, uid) {
@@ -1369,6 +1429,23 @@ const App = {
     if (pass) body.password = pass;
     try {
       await API.put(`/admin/negocios/${negocioId}/usuarios/${uid}`, body);
+      if (pass) {
+        // Se enseña una sola vez y en grande: es el único momento en que esta
+        // contraseña existe en algún lado donde se pueda leer.
+        this.modal(`
+          <h3>${this.ico('check')} Listo, ya puede entrar</h3>
+          <p>Dile esto al cliente:</p>
+          <div class="tarjeta centrado" style="background:var(--fondo)">
+            <div class="suave">usuario</div>
+            <div style="font-size:1.4rem;font-weight:800">${this.esc(body.usuario)}</div>
+            <div class="suave" style="margin-top:.6rem">contraseña</div>
+            <div style="font-size:1.4rem;font-weight:800;letter-spacing:.06em">${this.esc(pass)}</div>
+          </div>
+          <p class="suave">Anótala ahora: al cerrar esta ventana ya no se puede volver a ver,
+            solo generar otra.</p>
+          <button class="btn" onclick="App.editarNegocio(${negocioId})">Entendido</button>`);
+        return;
+      }
       this.avisar('Usuario actualizado');
       this.editarNegocio(negocioId);
     } catch (e) { this.$('#eu-msg').innerHTML = `<div class="msg-error">${this.esc(e.message)}</div>`; }

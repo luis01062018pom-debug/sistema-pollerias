@@ -170,6 +170,11 @@ ALTER TABLE negocios ADD COLUMN IF NOT EXISTS color_fondo TEXT DEFAULT '#f4f3f0'
 ALTER TABLE negocios ADD COLUMN IF NOT EXISTS icono_192 TEXT;
 ALTER TABLE negocios ADD COLUMN IF NOT EXISTS icono_512 TEXT;
 
+/* Baja de un cliente. Si ya vendió, su historial NO se borra: el dinero que
+   cobramos tiene que seguir cuadrando en la contabilidad. Se marca la fecha
+   de baja, desaparece del panel y nadie de ese negocio puede volver a entrar. */
+ALTER TABLE negocios ADD COLUMN IF NOT EXISTS eliminado_en TIMESTAMPTZ;
+
 /* Índices de consulta. Sin ellos, una pollería con meses de ventas hace que
    el corte y los reportes recorran la tabla entera cada vez (eso es el "lag"
    que se siente en el teléfono a media venta). */

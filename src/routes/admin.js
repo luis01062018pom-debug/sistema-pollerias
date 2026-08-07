@@ -8,7 +8,7 @@
  */
 const express = require('express');
 const bcrypt = require('bcryptjs');
-const { query, one, rows } = require('../db');
+const { query, one, rows, transaccion } = require('../db');
 const { requiereAuth, requiereRol } = require('../auth');
 const { crearCatalogo } = require('../seed');
 const { estadoSuscripcion, corteEnDias } = require('../suscripcion');
@@ -49,7 +49,7 @@ router.get('/negocios', async (req, res) => {
               (SELECT MAX(v.fecha) FROM ventas v WHERE v.negocio_id = n.id) AS ultima_venta,
               (SELECT COUNT(*)::int FROM pagos_suscripcion p
                 WHERE p.negocio_id = n.id AND p.estado = 'PENDIENTE') AS pagos_pendientes
-       FROM negocios n ORDER BY n.nombre`);
+       FROM negocios n WHERE n.eliminado_en IS NULL ORDER BY n.nombre`);
     for (const n of lista) {
       n.flags = JSON.parse(n.flags || '{}');
       n.situacion = estadoSuscripcion(n);
@@ -181,6 +181,63 @@ router.post('/negocios/:id/usuarios', async (req, res) => {
        rol === 'dueno' ? 'dueno' : 'empleado']);
     res.json({ ok: true, usuario: u });
   } catch (e) { fallo(res, e, 'Error al crear el usuario'); }
+});
+
+/**
+ * Dar de baja una pollería.
+ *
+ * Dos caminos, y la diferencia importa:
+ *  - Si nunca vendió ni pagó, se borra de verdad (fue un alta de prueba o un
+ *    error de captura y no tiene caso conservarla).
+ *  - Si ya tiene historial, se marca la baja: desaparece del panel y nadie
+ *    puede entrar, pero sus ventas y los pagos que nos hizo siguen en la
+ *    contabilidad. Borrar eso desajustaría los números del negocio.
+ *
+ * Siempre exige que se escriba el nombre exacto: es lo único que evita
+ * borrar al cliente equivocado por un clic distraído.
+ */
+router.delete('/negocios/:id', async (req, res) => {
+  try {
+    const n = await one('SELECT id, nombre FROM negocios WHERE id = $1 AND eliminado_en IS NULL',
+      [req.params.id]);
+    if (!n) return res.status(404).json({ error: 'Ese negocio no existe' });
+
+    const escrito = String((req.body || {}).confirmacion || '').trim();
+    if (escrito.toLowerCase() !== String(n.nombre).trim().toLowerCase()) {
+      return res.status(400).json({
+        error: `Para eliminarlo, escribe su nombre tal cual: ${n.nombre}`,
+      });
+    }
+
+    const uso = await one(
+      `SELECT (SELECT COUNT(*)::int FROM ventas WHERE negocio_id = $1) AS ventas,
+              (SELECT COUNT(*)::int FROM pagos_suscripcion WHERE negocio_id = $1) AS pagos`,
+      [n.id]);
+
+    if (uso.ventas === 0 && uso.pagos === 0) {
+      await transaccion(async (tx) => {
+        for (const sql of [
+          'DELETE FROM compra_despiece WHERE compra_id IN (SELECT id FROM compras WHERE negocio_id = $1)',
+          'DELETE FROM compras WHERE negocio_id = $1',
+          'DELETE FROM inventario WHERE negocio_id = $1',
+          'DELETE FROM cortes WHERE negocio_id = $1',
+          'DELETE FROM piezas WHERE negocio_id = $1',
+          'DELETE FROM usuarios WHERE negocio_id = $1',
+          'UPDATE contabilidad_saas SET negocio_id = NULL WHERE negocio_id = $1',
+          'DELETE FROM negocios WHERE id = $1',
+        ]) await tx.query(sql, [n.id]);
+      });
+      return res.json({ ok: true, borrado: 'completo', nombre: n.nombre });
+    }
+
+    await query(
+      `UPDATE negocios SET eliminado_en = now(), activo = FALSE, estado = 'CANCELADA'
+       WHERE id = $1`, [n.id]);
+    res.json({
+      ok: true, borrado: 'con historial', nombre: n.nombre,
+      ventas: uso.ventas, pagos: uso.pagos,
+    });
+  } catch (e) { fallo(res, e, 'Error al eliminar el negocio'); }
 });
 
 /**
