@@ -1,5 +1,18 @@
 const jwt = require('jsonwebtoken');
 
+// El secreto de relleno sirve para trabajar en la computadora, pero en el
+// servidor es una puerta abierta: cualquiera que lea el código puede
+// fabricarse un pase de superadministrador. Si falta la variable en
+// producción, el sistema NO arranca — vale más un despliegue que falla y se
+// nota que uno que queda abierto y no se nota.
+const EN_PRODUCCION = !!(process.env.NODE_ENV === 'production' || process.env.RAILWAY_ENVIRONMENT);
+if (EN_PRODUCCION && !process.env.JWT_SECRET) {
+  console.error('\n✖ Falta la variable JWT_SECRET en el servidor.');
+  console.error('  Sin ella, las sesiones se firmarían con el secreto de ejemplo del código');
+  console.error('  y cualquiera podría entrar como superadministrador.');
+  console.error('  Ponla en Railway (una cadena larga y al azar) y vuelve a desplegar.\n');
+  process.exit(1);
+}
 const SECRET = process.env.JWT_SECRET || 'dev-secret-cambiar-en-produccion';
 
 function firmar(usuario) {

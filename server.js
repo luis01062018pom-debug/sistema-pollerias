@@ -21,6 +21,24 @@ app.use('/api/login', proteccion.limiteEntrada);
 
 app.use(express.json({ limit: '6mb' })); // logos e iconos en base64
 
+// PostgreSQL no admite el carácter nulo (\u0000) dentro de un texto: si llega
+// uno, el driver truena y la respuesta salía como "Error del servidor" (500).
+// No tiene ningún uso legítimo aquí y es de los primeros trucos que prueba
+// quien anda buscando dónde se rompe un sistema: se limpia al entrar.
+function sinNulos(valor, hondo = 0) {
+  if (hondo > 8) return valor;
+  if (typeof valor === 'string') return valor.includes('\u0000') ? valor.replace(/\u0000/g, '') : valor;
+  if (Array.isArray(valor)) return valor.map(v => sinNulos(v, hondo + 1));
+  if (valor && typeof valor === 'object') {
+    for (const k of Object.keys(valor)) valor[k] = sinNulos(valor[k], hondo + 1);
+  }
+  return valor;
+}
+app.use((req, res, next) => {
+  if (req.body && typeof req.body === 'object') req.body = sinNulos(req.body);
+  next();
+});
+
 // El orden importa: el router de la app (./src/routes/app) trae el bloqueo por
 // falta de pago, y ni el panel de superadmin ni la pantalla para pagar deben
 // pasar por él. Por eso van montados antes.

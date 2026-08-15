@@ -55,11 +55,33 @@ const general = contador(600, 60 * 1000);
 // Entrada al sistema: 8 intentos cada 15 minutos por IP.
 const entrada = contador(8, 15 * 60 * 1000);
 
-/** Cabeceras de seguridad. Sin CSP: la app ya está en manos de clientes y una
- *  política mal calibrada rompe la pantalla sin avisar. Lo demás no rompe nada. */
+/* Política de contenido. Antes no había ninguna por miedo a romper la pantalla
+   de un cliente; esta está calibrada con lo que la app REALMENTE usa hoy:
+   todo se sirve del propio dominio, hay un <script> en línea dentro del
+   index.html y estilos en atributos style="…" (de ahí los 'unsafe-inline'),
+   las imágenes llegan como data: (logos en base64) y blob: (la cámara).
+   Lo que sí queda cerrado es lo que hoy no se usa y es por donde entra el
+   daño: cargar código de otro sitio, meter la app en un marco ajeno, mandar
+   un formulario a otro servidor y los <object>/<embed>. */
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob:",
+  "font-src 'self' data:",
+  "connect-src 'self'",
+  "media-src 'self' blob:",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+].join('; ');
+
+/** Cabeceras de seguridad. */
 function cabeceras(req, res, next) {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Content-Security-Policy', CSP);
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('X-Robots-Tag', 'noindex, nofollow');
   res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), payment=()');

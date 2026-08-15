@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node server.js",
-    "prueba": "node prueba-suscripcion.js"
+    "prueba": "node prueba-suscripcion.js",
+    "probar-seguridad": "node pruebas-seguridad.js"
   },
   "engines": {
     "node": ">=18"
