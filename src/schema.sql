@@ -183,3 +183,17 @@ CREATE INDEX IF NOT EXISTS idx_venta_items_venta ON venta_items (venta_id);
 CREATE INDEX IF NOT EXISTS idx_compras_negocio_fecha ON compras (negocio_id, fecha DESC);
 CREATE INDEX IF NOT EXISTS idx_piezas_negocio ON piezas (negocio_id, activo);
 CREATE INDEX IF NOT EXISTS idx_usuarios_negocio ON usuarios (negocio_id);
+
+/* Bitácora de entradas al panel de superadministrador. La pregunta que
+   contesta es "¿alguien entró a mi panel sin que yo me diera cuenta?": se
+   guarda cada intento (bueno o malo) con su IP y su dispositivo, y el panel
+   marca en rojo las direcciones que nunca se habían visto. */
+CREATE TABLE IF NOT EXISTS accesos_admin (
+  id SERIAL PRIMARY KEY,
+  fecha TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  usuario TEXT NOT NULL,
+  exito BOOLEAN NOT NULL DEFAULT FALSE,
+  ip TEXT,
+  dispositivo TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_accesos_admin_fecha ON accesos_admin (fecha DESC);

@@ -40,7 +40,18 @@ async function seed() {
 
   console.log('[seed] Base vacía: creando superadmin y negocio demo FRESQUIPOLLO...');
 
-  const adminPass = process.env.ADMIN_PASSWORD || 'admin123';
+  // En el servidor NUNCA se crea el superadministrador con una contraseña
+  // que está escrita en el código: si falta ADMIN_PASSWORD se inventa una al
+  // azar y se imprime UNA vez en el registro del despliegue. Vale más tener
+  // que ir a leer el log que dejar "admin123" abierto en internet.
+  const enProduccion = !!(process.env.NODE_ENV === 'production' || process.env.RAILWAY_ENVIRONMENT);
+  const adminPass = process.env.ADMIN_PASSWORD
+    || (enProduccion ? require('crypto').randomBytes(9).toString('base64url') : 'admin123');
+  if (enProduccion && !process.env.ADMIN_PASSWORD) {
+    console.warn('\n⚠  No hay ADMIN_PASSWORD. Contraseña del superadministrador para esta base:');
+    console.warn('   ' + adminPass);
+    console.warn('   ANÓTALA y ponla en la variable ADMIN_PASSWORD de Railway.\n');
+  }
   await query(
     `INSERT INTO usuarios (negocio_id, nombre, usuario, hash, rol) VALUES (NULL,$1,$2,$3,'superadmin')`,
     ['Administrador del sistema', 'admin', bcrypt.hashSync(adminPass, 10)]

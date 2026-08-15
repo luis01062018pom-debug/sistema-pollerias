@@ -32,6 +32,24 @@ function fallo(res, e, mensajeGenerico) {
 // NEGOCIOS CLIENTE
 // =====================================================================
 
+/* ¿Alguien entró a mi panel sin que yo me diera cuenta?
+   Devuelve las últimas entradas al superadministrador. Una dirección que
+   nunca se había visto antes se marca: casi siempre es el mismo dueño desde
+   otra red, pero es justo lo que hay que mirar dos veces. */
+router.get('/accesos', async (req, res) => {
+  const ultimos = await rows(
+    `SELECT id, fecha, usuario, exito, ip, dispositivo
+       FROM accesos_admin ORDER BY fecha DESC LIMIT 40`);
+  // IPs con al menos una entrada BUENA anterior a las últimas 40: las demás
+  // son direcciones nuevas.
+  const conocidas = await rows(
+    `SELECT ip, MIN(fecha) AS desde, COUNT(*) AS veces
+       FROM accesos_admin WHERE exito = TRUE AND ip IS NOT NULL
+      GROUP BY ip HAVING COUNT(*) > 1`);
+  const mapa = new Map(conocidas.map(c => [c.ip, c]));
+  res.json(ultimos.map(a => ({ ...a, conocida: mapa.has(a.ip) })));
+});
+
 router.get('/negocios', async (req, res) => {
   try {
     const lista = await rows(

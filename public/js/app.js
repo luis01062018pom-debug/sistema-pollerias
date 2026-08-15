@@ -1111,6 +1111,10 @@ const App = {
   async vistaAdmin() {
     this.$('#vista').innerHTML = `
       <h2>${this.ico('admin')} Negocios</h2>
+      <div class="tarjeta" id="ad-accesos">
+        <h3 style="margin:0 0 .4rem">Entradas a este panel</h3>
+        <div id="ad-accesos-lista" class="chico">Cargando…</div>
+      </div>
       <div class="tarjeta" id="ad-lista">Cargando…</div>
       <div class="tarjeta">
         <h3>+ Dar de alta una pollería</h3>
@@ -1132,6 +1136,36 @@ const App = {
         <div id="ad-msg"></div>
       </div>`;
     this.cargarNegocios();
+    this.cargarAccesos();
+  },
+
+  /* Quién ha entrado a este panel. Es la forma de enterarse si alguien más
+     tiene la contraseña: aquí saldría su entrada, con su dirección y su hora. */
+  async cargarAccesos() {
+    const caja = this.$('#ad-accesos-lista');
+    if (!caja) return;
+    try {
+      const lista = await API.get('/admin/accesos');
+      if (!lista.length) { caja.textContent = 'Todavía no hay entradas registradas.'; return; }
+      const fallidos = lista.filter(a => !a.exito).length;
+      const nuevas = lista.filter(a => a.exito && !a.conocida).length;
+      const resumen = [];
+      if (nuevas) resumen.push(`${nuevas} entrada(s) desde una dirección nueva`);
+      if (fallidos) resumen.push(`${fallidos} intento(s) fallido(s)`);
+      caja.innerHTML = `
+        ${resumen.length ? `<p style="color:#a4562f;font-weight:700;margin:.2rem 0 .5rem">⚠ ${resumen.join(' · ')}</p>`
+                         : '<p style="margin:.2rem 0 .5rem;color:#5b6b5f">Sin novedades: todas las entradas son de direcciones ya conocidas.</p>'}
+        <table class="datos"><thead><tr><th>Cuándo</th><th>Usuario</th><th>Desde</th><th></th></tr></thead><tbody>
+        ${lista.slice(0, 12).map(a => `<tr${a.exito ? '' : ' style="opacity:.7"'}>
+            <td>${new Date(a.fecha).toLocaleString('es-MX')}</td>
+            <td>${this.esc(a.usuario)}</td>
+            <td>${this.esc(a.ip || '—')}</td>
+            <td>${!a.exito ? '<b style="color:#b3453d">falló</b>'
+                            : (a.conocida ? 'conocida' : '<b style="color:#a4562f">dirección nueva</b>')}</td>
+          </tr>`).join('')}
+        </tbody></table>
+        <p class="chico" style="color:#5b6b5f;margin-top:.4rem">Si ves una entrada que no fuiste tú, cambia la contraseña del superadministrador ese mismo momento.</p>`;
+    } catch (e) { caja.textContent = 'No se pudieron cargar las entradas.'; }
   },
 
   async cargarNegocios() {

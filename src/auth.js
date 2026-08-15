@@ -16,10 +16,15 @@ if (EN_PRODUCCION && !process.env.JWT_SECRET) {
 const SECRET = process.env.JWT_SECRET || 'dev-secret-cambiar-en-produccion';
 
 function firmar(usuario) {
+  // Un mes de sesión está bien para la caja de una pollería (que no quiere
+  // volver a escribir la contraseña cada mañana), pero NO para la cuenta que
+  // manda sobre todos los clientes: esa dura una jornada. Si a alguien se le
+  // queda abierta la sesión del panel en un teléfono, caduca el mismo día.
+  const duracion = usuario.rol === 'superadmin' ? '12h' : '30d';
   return jwt.sign(
     { uid: usuario.id, negocio_id: usuario.negocio_id, rol: usuario.rol, nombre: usuario.nombre },
     SECRET,
-    { expiresIn: '30d' }
+    { expiresIn: duracion }
   );
 }
 
