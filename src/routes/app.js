@@ -220,8 +220,13 @@ router.post('/ventas', async (req, res) => {
     if (!uuid || !Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ error: 'Venta sin productos' });
     }
-    // Idempotencia: si ya existe este uuid (reintento de sincronización), no duplicar
-    const ya = await one('SELECT id FROM ventas WHERE uuid = $1', [uuid]);
+    // Idempotencia: si ya existe este uuid (reintento de sincronización), no duplicar.
+    // Se busca DENTRO DEL NEGOCIO, no en toda la base: el uuid lo genera el
+    // dispositivo del cliente, y si dos pollerías llegaran a repetir uno (un
+    // celular clonado, una copia de la app), la venta de la segunda se habría
+    // dado por "duplicada" y NO SE HABRÍA REGISTRADO — plata perdida y datos
+    // de un negocio contestando a otro.
+    const ya = await one('SELECT id FROM ventas WHERE uuid = $1 AND negocio_id = $2', [uuid, nid]);
     if (ya) return res.json({ ok: true, venta_id: ya.id, duplicada: true });
 
     let total = 0;
@@ -286,10 +291,21 @@ router.get('/ventas', async (req, res) => {
      FROM ventas v LEFT JOIN usuarios u ON u.id = v.usuario_id
      WHERE v.negocio_id = $1 AND ($2::date IS NULL OR v.fecha::date = $2::date)
      ORDER BY v.fecha DESC LIMIT 100`, [nid, fecha]);
-  for (const v of lista) {
-    v.items = await rows(
-      `SELECT nombre, modo, cantidad::float8 AS cantidad, precio::float8 AS precio, subtotal::float8 AS subtotal
-       FROM venta_items WHERE venta_id = $1`, [v.id]);
+  // Las partidas de las 100 ventas se piden en UNA consulta, no en cien.
+  // Antes era una por venta: 101 viajes a Postgres cada vez que alguien abría
+  // la pantalla de ventas del día, y eso se siente en el celular de la tienda.
+  if (lista.length) {
+    const ids = lista.map((v) => v.id);
+    const partidas = await rows(
+      `SELECT venta_id, nombre, modo, cantidad::float8 AS cantidad,
+              precio::float8 AS precio, subtotal::float8 AS subtotal
+       FROM venta_items WHERE venta_id = ANY($1::int[]) ORDER BY id`, [ids]);
+    const porVenta = new Map(lista.map((v) => [v.id, []]));
+    for (const p of partidas) {
+      const destino = porVenta.get(p.venta_id);
+      if (destino) { delete p.venta_id; destino.push(p); }
+    }
+    for (const v of lista) v.items = porVenta.get(v.id) || [];
   }
   res.json(lista);
 });

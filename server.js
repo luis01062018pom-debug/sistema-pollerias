@@ -8,6 +8,17 @@ const PORT = process.env.PORT || 3000;
 
 app.disable('x-powered-by');
 app.set('trust proxy', 1); // Railway va detrás de un proxy
+
+// Protección: cabeceras de seguridad, techo de peticiones por IP y respuestas
+// comprimidas. Va ANTES de todo lo demás para que ninguna ruta se lo salte.
+const proteccion = require('./src/proteccion');
+app.use(proteccion.cabeceras);
+app.use('/api', proteccion.limiteGeneral);
+app.use(proteccion.comprimir);
+// La pantalla de entrada aparte, con freno estricto: es la puerta y la que
+// más se golpea cuando alguien anda probando contraseñas.
+app.use('/api/login', proteccion.limiteEntrada);
+
 app.use(express.json({ limit: '6mb' })); // logos e iconos en base64
 
 // El orden importa: el router de la app (./src/routes/app) trae el bloqueo por
