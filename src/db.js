@@ -23,6 +23,15 @@ async function init() {
     });
     // Una conexión que se cae sola (reinicio de Postgres, red) emite 'error'.
     // Sin este manejador, Node se lleva el proceso entero por delante.
+    // ZONA HORARIA DEL NEGOCIO. Sin esto, Postgres agrupa los días en hora de
+    // Greenwich: una venta de las 8 de la noche en México caía en el día
+    // SIGUIENTE, así que el corte de la noche salía incompleto y el del día
+    // siguiente traía ventas de anoche. Se fija en cada conexión nueva.
+    _pool.on('connect', (c) => {
+      const zona = process.env.TZ_NEGOCIO || 'America/Mexico_City';
+      c.query("SET TIME ZONE '" + zona + "'")
+        .catch((e) => console.error('[db] no se pudo fijar la zona horaria:', e.message));
+    });
     _pool.on('error', (e) => console.error('[db] conexión inactiva perdida:', e.message));
     _query = (text, params) => _pool.query(text, params);
     _exec = (sql) => _pool.query(sql);
@@ -36,6 +45,11 @@ async function init() {
     _exec = (sql) => _pglite.exec(sql);
     console.log('[db] Usando PGlite local en ' + dataDir + ' (modo desarrollo)');
   }
+  // La zona horaria del negocio también en desarrollo, para que lo que se
+  // prueba aquí se comporte igual que en el servidor de verdad.
+  try { await _exec("SET TIME ZONE '" + (process.env.TZ_NEGOCIO || 'America/Mexico_City') + "'"); }
+  catch (e) { console.warn('[db] zona horaria:', e.message); }
+
   const schema = fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8');
   await _exec(schema);
   // (Aquí vivía una migración que forzaba la paleta gris en cualquier negocio

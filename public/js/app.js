@@ -637,6 +637,10 @@ const App = {
    */
   async vistaCorte() {
     this.$('#vista').innerHTML = `<h2>${this.ico('corte')} Corte de caja</h2><div id="corte-cont">Cargando…</div>`;
+    // Las ventas del día de TODOS los equipos (si no hay señal, sigue con
+    // lo que se sepa de este). No afecta ninguna suma del corte: esos
+    // números siguen saliendo del resumen del servidor.
+    await API.ventasDelDiaServidor();
     let base = null, deCache = false, capturado = 0, falloRed = false;
     try {
       const c = await API.getCache('/corte/hoy', 'corte-hoy');
@@ -714,13 +718,27 @@ const App = {
     return new Date(ms).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
   },
 
-  /** Movimientos del día hechos en este equipo (se ven con o sin internet). */
+  /**
+   * Ventas del día de TODO el negocio: las que ya están en el servidor (las
+   * haya hecho el teléfono, la compu o cualquier otro equipo) más las de
+   * este aparato que todavía no suben. Sin internet se ven las de este
+   * equipo, como antes.
+   */
   tarjetaVentasDelDia() {
-    const ventas = API.ventasDeHoy();
+    const delServidor = API.ventasServidorGuardadas();
+    const locales = API.ventasDeHoy();
+    // Las que ya subieron llegan por el servidor: aquí solo se agregan las
+    // que faltan, para no contar la misma venta dos veces en la lista.
+    const pendientes = locales.filter((v) => !v.sincronizada);
+    const ventas = delServidor
+      ? [...pendientes, ...delServidor.lista]
+          .sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)))
+      : locales;
+    const sinRed = !delServidor || delServidor.falloRed;
     if (!ventas.length) return '';
     return `
       <div class="tarjeta tabla-scroll">
-        <h3>Ventas de hoy en este equipo (${ventas.length})</h3>
+        <h3>Ventas de hoy${sinRed ? ' en este equipo' : ''} (${ventas.length})</h3>
         <table>
           <tr><th>Hora</th><th>Productos</th><th class="num">Total</th><th></th></tr>
           ${ventas.slice(0, 60).map(v => `<tr>
@@ -732,7 +750,9 @@ const App = {
               : '<span class="etiqueta chica" style="background:#b8860b">por subir</span>'}</td>
           </tr>`).join('')}
         </table>
-        <p class="suave">Se guarda en el equipo aunque no haya internet; se sube solo cuando vuelve.</p>
+        <p class="suave">${sinRed
+          ? 'Sin conexión: se muestran las de este equipo. Se suben solas cuando vuelve la señal.'
+          : 'Incluye lo cobrado en todos los equipos del negocio.'}</p>
       </div>`;
   },
 

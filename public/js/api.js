@@ -144,6 +144,32 @@ const API = {
     if (v) { v.sincronizada = true; v.subida_en = Date.now(); this._guardarVentas(lista); }
   },
   /** Ventas de hoy hechas en este equipo, de la más nueva a la más vieja. */
+  /**
+   * Las ventas de hoy SEGÚN EL SERVIDOR: las de todos los equipos del
+   * negocio, no solo las de este aparato. Se guarda la última respuesta
+   * buena para poder pintarlas aunque después se caiga la señal.
+   */
+  async ventasDelDiaServidor() {
+    const hoy = new Date().toLocaleDateString('en-CA');
+    try {
+      const lista = await this.get('/ventas?fecha=' + hoy);
+      this._ventasServidor = { fecha: hoy, lista: Array.isArray(lista) ? lista : [] };
+    } catch (e) {
+      // Sin internet se conserva lo último que se supo; si nunca hubo nada,
+      // la pantalla se queda con lo de este equipo, como antes.
+      if (!this._ventasServidor || this._ventasServidor.fecha !== hoy) {
+        this._ventasServidor = { fecha: hoy, lista: [], falloRed: true };
+      } else {
+        this._ventasServidor.falloRed = true;
+      }
+    }
+    return this._ventasServidor;
+  },
+  ventasServidorGuardadas() {
+    const hoy = new Date().toLocaleDateString('en-CA');
+    return this._ventasServidor && this._ventasServidor.fecha === hoy ? this._ventasServidor : null;
+  },
+
   ventasDeHoy() {
     const hoy = new Date().toISOString().slice(0, 10);
     return this.ventasLocales()

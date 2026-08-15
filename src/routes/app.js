@@ -6,6 +6,14 @@ const { estadoSuscripcion, mensajeSuscripcion, SUSPENDIDOS, SOLO_VENTA } = requi
 const { seguro } = require('../asincrono');
 
 const router = seguro(express.Router());
+
+/** La fecha de HOY en la hora del negocio. Con toISOString() se obtiene la
+ * de Greenwich: después de las 6 de la tarde en México ya es el día
+ * siguiente, y el corte del día salía vacío. */
+function hoyLocal(masDias = 0) {
+  return new Date(Date.now() + masDias * 86400000).toLocaleDateString('en-CA');
+}
+
 router.use(requiereAuth);
 
 // Todas estas rutas operan sobre el negocio del usuario autenticado
@@ -330,7 +338,7 @@ async function resumenDia(nid, fecha) {
 
 router.get('/corte/hoy', async (req, res) => {
   const nid = negocioId(req, res); if (!nid) return;
-  const fecha = req.query.fecha || new Date().toISOString().slice(0, 10);
+  const fecha = req.query.fecha || hoyLocal();
   const r = await resumenDia(nid, fecha);
   const cerrado = await one('SELECT * FROM cortes WHERE negocio_id = $1 AND fecha = $2::date', [nid, fecha]);
   res.json({ fecha, ...r, cerrado: !!cerrado, corte: cerrado || null });
@@ -339,7 +347,7 @@ router.get('/corte/hoy', async (req, res) => {
 router.post('/corte', async (req, res) => {
   const nid = negocioId(req, res); if (!nid) return;
   try {
-    const fecha = req.body.fecha || new Date().toISOString().slice(0, 10);
+    const fecha = req.body.fecha || hoyLocal();
     const efectivo = parseFloat(req.body.efectivo_contado) || 0;
     const r = await resumenDia(nid, fecha);
     const diferencia = Math.round((efectivo - r.total_ventas) * 100) / 100;
@@ -360,8 +368,8 @@ router.post('/corte', async (req, res) => {
 
 router.get('/reportes/resumen', async (req, res) => {
   const nid = negocioId(req, res); if (!nid) return;
-  const desde = req.query.desde || new Date(Date.now() - 6 * 86400000).toISOString().slice(0, 10);
-  const hasta = req.query.hasta || new Date().toISOString().slice(0, 10);
+  const desde = req.query.desde || hoyLocal(-6);
+  const hasta = req.query.hasta || hoyLocal();
   const porDia = await rows(
     `SELECT fecha::date AS dia, COUNT(*)::int AS ventas, SUM(total)::float8 AS total
      FROM ventas WHERE negocio_id = $1 AND fecha::date BETWEEN $2::date AND $3::date
