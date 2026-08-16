@@ -941,11 +941,11 @@ const App = {
     if (!this.flag('empleados')) return;
     this.pintarFuncionesEmpleado();
     try {
-      const r = await API.get('/empleados');
-      this.state.funcionesEmpleado = r.funciones || [];
-      this.pintarFuncionesEmpleado();
+      // La lista llega como arreglo (la forma de siempre). Las funciones que
+      // se pueden marcar son las de aquí abajo: no hace falta preguntarlas.
+      const empleados = await API.get('/empleados');
       const el = this.$('#cf-empleados');
-      if (el) el.innerHTML = (r.empleados || []).map((e) => `
+      if (el) el.innerHTML = (empleados || []).map((e) => `
         <div class="renglon-emp">
           <div>
             <b>${this.esc(e.nombre)}</b>
@@ -958,7 +958,7 @@ const App = {
             ${e.rol === 'dueno' ? '' : `<button class="btn chico" onclick="App.editarEmpleado(${e.id})">Funciones</button>`}
           </div>
         </div>`).join('') || '<p class="suave">Solo tú por ahora.</p>';
-      this.state.empleados = r.empleados || [];
+      this.state.empleados = empleados || [];
     } catch (e) {
       const el = this.$('#cf-empleados');
       if (el) el.innerHTML = '<p class="suave">No se pudo cargar la lista (¿sin internet?).</p>';

@@ -459,15 +459,21 @@ router.get('/empleados', requiereRol('dueno'), async (req, res) => {
   const lista = await rows(
     `SELECT id, nombre, usuario, rol, activo, permisos, clave_cifrada
        FROM usuarios WHERE negocio_id = $1 ORDER BY rol, nombre`, [nid]);
-  res.json({
-    funciones: permisos.FUNCIONES,
-    empleados: lista.map((u) => ({
-      id: u.id, nombre: u.nombre, usuario: u.usuario, rol: u.rol, activo: u.activo,
-      permisos: permisos.permisosDe(u),
-      // La contraseña SOLO la ve el dueño, que es el único que llega aquí.
-      password: cred.descifrar(u.clave_cifrada),
-    })),
-  });
+  // Se responde una LISTA, como siempre. Antes esto devolvía un arreglo y
+  // cambiarlo a un objeto rompía la pantalla de cualquier cliente que
+  // todavía tuviera guardada la versión anterior de la aplicación: la app se
+  // actualiza sola, pero no en el mismo segundo en que publicamos.
+  res.json(lista.map((u) => ({
+    id: u.id, nombre: u.nombre, usuario: u.usuario, rol: u.rol, activo: u.activo,
+    permisos: permisos.permisosDe(u),
+    // La contraseña SOLO la ve el dueño, que es el único que llega aquí.
+    password: cred.descifrar(u.clave_cifrada),
+  })));
+});
+
+/** Las funciones que se le pueden marcar a alguien. */
+router.get('/funciones-empleado', requiereRol('dueno'), (req, res) => {
+  res.json({ funciones: permisos.FUNCIONES });
 });
 
 /** Cambiarle a un empleado sus funciones, su contraseña o darlo de baja. */
