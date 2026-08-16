@@ -197,3 +197,9 @@ CREATE TABLE IF NOT EXISTS accesos_admin (
   dispositivo TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_accesos_admin_fecha ON accesos_admin (fecha DESC);
+
+/* Copia cifrada de la contraseña, para poder volver a dictársela al cliente
+   cuando la pierda (ver src/credenciales.js). El hash de entrada sigue
+   siendo bcrypt en la columna `hash`; esto es una segunda copia, y solo se
+   descifra desde el panel de fundadores. */
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS clave_cifrada TEXT;

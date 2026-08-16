@@ -13,6 +13,7 @@ const { requiereAuth, requiereRol } = require('../auth');
 const { crearCatalogo } = require('../seed');
 const { estadoSuscripcion, corteEnDias } = require('../suscripcion');
 const { confirmarPago, cobroManual, rechazarPago } = require('../pagos');
+const cred = require('../credenciales');
 
 const { seguro } = require('../asincrono');
 
@@ -108,12 +109,16 @@ router.post('/negocios', async (req, res) => {
        num(req.body.dias_gracia, 5), dueno_nombre || null,
        req.body.whatsapp_contacto || null, req.body.notas_internas || null]);
 
+    // Se guarda también la copia cifrada: cuando el cliente hable diciendo
+    // que perdió su contraseña, hay que poder volver a dictársela.
     await query(
-      `INSERT INTO usuarios (negocio_id, nombre, usuario, hash, rol) VALUES ($1,$2,$3,$4,'dueno')`,
-      [neg.id, dueno_nombre || 'Dueño', usr, bcrypt.hashSync(dueno_password, 10)]);
+      `INSERT INTO usuarios (negocio_id, nombre, usuario, hash, rol, clave_cifrada)
+       VALUES ($1,$2,$3,$4,'dueno',$5)`,
+      [neg.id, dueno_nombre || 'Dueño', usr, bcrypt.hashSync(dueno_password, 10),
+       cred.cifrar(dueno_password)]);
     await crearCatalogo(neg.id, 2500);
 
-    res.json({ ok: true, negocio_id: neg.id });
+    res.json({ ok: true, negocio_id: neg.id, usuario: usr, password: dueno_password });
   } catch (e) { fallo(res, e, 'Error al crear el negocio'); }
 });
 
@@ -322,7 +327,8 @@ router.post('/negocios/:id/reset-password', async (req, res) => {
     const u = await one('SELECT id FROM usuarios WHERE usuario = $1 AND negocio_id = $2',
       [String(usuario).trim().toLowerCase(), req.params.id]);
     if (!u) return res.status(404).json({ error: 'Usuario no encontrado en ese negocio' });
-    await query('UPDATE usuarios SET hash = $1 WHERE id = $2', [bcrypt.hashSync(password, 10), u.id]);
+    await query('UPDATE usuarios SET hash = $1, clave_cifrada = $2 WHERE id = $3',
+      [bcrypt.hashSync(password, 10), cred.cifrar(password), u.id]);
     res.json({ ok: true });
   } catch (e) { fallo(res, e, 'Error al restablecer la contraseña'); }
 });

@@ -12,9 +12,11 @@
  * puesta, estas rutas simplemente no existen.
  */
 const express = require('express');
-const { one, rows } = require('../db');
+const { one, rows, query } = require('../db');
 const { estadoSuscripcion } = require('../suscripcion');
 const { confirmarPago, cobroManual, rechazarPago } = require('../pagos');
+const bcrypt = require('bcryptjs');
+const cred = require('../credenciales');
 const { seguro } = require('../asincrono');
 
 const router = seguro(express.Router());
@@ -42,7 +44,7 @@ router.get('/resumen', async (req, res) => {
   try {
     const negocios = await rows(
       `SELECT n.id, n.codigo, n.nombre, n.activo, n.estado, n.fecha_corte, n.dias_gracia,
-              n.precio_mensual::float8 AS precio_mensual, n.contacto_nombre, n.whatsapp_contacto,
+              n.precio_mensual::float8 AS precio_mensual, n.contacto_nombre, n.whatsapp_contacto, n.creado_en,
               (SELECT COUNT(*)::int FROM usuarios u WHERE u.negocio_id = n.id) AS usuarios,
               (SELECT COUNT(*)::int FROM ventas v WHERE v.negocio_id = n.id
                  AND v.fecha >= date_trunc('month', now())) AS ventas_mes,
@@ -119,6 +121,41 @@ router.post('/pagos/manual', async (req, res) => {
     });
     res.json({ ok: true, ...r });
   } catch (e) { fallo(res, e, 'Error al registrar el cobro'); }
+});
+
+/* Los accesos de un cliente: quién entra a esa pollería y con qué
+   contraseña. "Se me perdió la contraseña" es la llamada más común, y desde
+   el panel hay que poder volver a dictarla sin cambiarla.
+   Solo llega por aquí, servidor a servidor con el token compartido. */
+router.get('/negocios/:id/usuarios', async (req, res) => {
+  try {
+    const lista = await rows(
+      `SELECT id, nombre, usuario, rol, activo, clave_cifrada
+         FROM usuarios WHERE negocio_id = $1 ORDER BY rol, nombre`, [req.params.id]);
+    res.json({
+      ok: true,
+      usuarios: lista.map((u) => ({
+        id: u.id, nombre: u.nombre, usuario: u.usuario, rol: u.rol, activo: u.activo,
+        password: cred.descifrar(u.clave_cifrada),
+      })),
+    });
+  } catch (e) { fallo(res, e, 'Error al listar los accesos'); }
+});
+
+/* Ponerle una contraseña nueva a un usuario de ese negocio. Sirve para los
+   que se crearon antes de que se guardara la copia recuperable: se genera
+   una, se le dicta al cliente y desde entonces sí se puede volver a ver. */
+router.post('/negocios/:id/usuarios/:uid/clave', async (req, res) => {
+  try {
+    const u = await one('SELECT id, usuario FROM usuarios WHERE id = $1 AND negocio_id = $2',
+      [req.params.uid, req.params.id]);
+    if (!u) return res.status(404).json({ error: 'Ese usuario no es de ese negocio' });
+    const nueva = String(req.body.password || '') || cred.claveLegible(10);
+    if (nueva.length < 6) return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres' });
+    await query('UPDATE usuarios SET hash = $1, clave_cifrada = $2 WHERE id = $3',
+      [bcrypt.hashSync(nueva, 10), cred.cifrar(nueva), u.id]);
+    res.json({ ok: true, usuario: u.usuario, password: nueva });
+  } catch (e) { fallo(res, e, 'Error al cambiar la contraseña'); }
 });
 
 module.exports = router;
