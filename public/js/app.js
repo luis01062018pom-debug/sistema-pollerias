@@ -923,27 +923,126 @@ const App = {
       ${this.flag('empleados') ? `
       <div class="tarjeta">
         <h3>Empleados</h3>
+        <p class="suave">Tú decides qué puede hacer cada quien y tú le entregas su
+          contraseña. Ellos no la pueden cambiar: si se les olvida, aquí la vuelves a ver.</p>
         <div id="cf-empleados" class="lista-simple">Cargando…</div>
         <div class="fila" style="margin-top:.7rem">
-          <input id="em-nombre" placeholder="Nombre">
+          <input id="em-nombre" placeholder="Nombre de la persona">
           <input id="em-usuario" placeholder="usuario" autocapitalize="none">
         </div>
-        <input id="em-pass" placeholder="contraseña" style="margin-top:.6rem">
+        <div class="fila" style="margin-top:.6rem">
+          <input id="em-pass" placeholder="contraseña">
+          <button class="btn chico" onclick="App.sugerirClaveEmpleado()">Generar una</button>
+        </div>
+        <div id="em-funciones" class="funciones-emp"></div>
         <button class="btn chico" style="margin-top:.7rem" onclick="App.crearEmpleado()">+ Agregar empleado</button>
         <div id="em-msg"></div>
       </div>` : ''}`;
     if (!this.flag('empleados')) return;
+    this.pintarFuncionesEmpleado();
     try {
-      const emp = await API.get('/empleados');
+      const r = await API.get('/empleados');
+      this.state.funcionesEmpleado = r.funciones || [];
+      this.pintarFuncionesEmpleado();
       const el = this.$('#cf-empleados');
-      if (el) {
-        el.innerHTML = emp.map(e =>
-          `<div><span>${this.esc(e.nombre)} <span class="suave">(${this.esc(e.usuario)} · ${e.rol})</span></span></div>`).join('') || '<p class="suave">Solo tú por ahora.</p>';
-      }
+      if (el) el.innerHTML = (r.empleados || []).map((e) => `
+        <div class="renglon-emp">
+          <div>
+            <b>${this.esc(e.nombre)}</b>
+            <span class="suave">${this.esc(e.usuario)} · ${this.esc(e.rol)}${e.activo ? '' : ' · dado de baja'}</span>
+            <div class="suave chico">${e.rol === 'dueno' ? 'Todo'
+              : (e.permisos.length ? e.permisos.map((p) => this.NOMBRE_FUNCION[p] || p).join(' · ') : 'ninguna función marcada')}</div>
+          </div>
+          <div class="acciones-emp">
+            <button class="btn chico" onclick="App.verAccesoEmpleado(${e.id})">Ver acceso</button>
+            ${e.rol === 'dueno' ? '' : `<button class="btn chico" onclick="App.editarEmpleado(${e.id})">Funciones</button>`}
+          </div>
+        </div>`).join('') || '<p class="suave">Solo tú por ahora.</p>';
+      this.state.empleados = r.empleados || [];
     } catch (e) {
       const el = this.$('#cf-empleados');
       if (el) el.innerHTML = '<p class="suave">No se pudo cargar la lista (¿sin internet?).</p>';
     }
+  },
+
+  NOMBRE_FUNCION: {
+    vender: 'Cobrar', compras: 'Compras y despiece', inventario: 'Inventario',
+    corte: 'Corte de caja', reportes: 'Reportes y ganancias',
+  },
+
+  /* Las palomitas de "qué puede hacer" del empleado nuevo. */
+  pintarFuncionesEmpleado(marcadas) {
+    const caja = this.$('#em-funciones');
+    if (!caja) return;
+    const lista = this.state.funcionesEmpleado || ['vender', 'compras', 'inventario', 'corte', 'reportes'];
+    const puestas = marcadas || lista;
+    caja.innerHTML = '<p class="suave" style="margin:.6rem 0 .3rem">Qué puede hacer</p>'
+      + lista.map((f) => `<label class="funcion-emp">
+          <input type="checkbox" id="fn-${f}" ${puestas.includes(f) ? 'checked' : ''}>
+          <span>${this.NOMBRE_FUNCION[f] || f}</span></label>`).join('');
+  },
+
+  funcionesMarcadas() {
+    return (this.state.funcionesEmpleado || ['vender', 'compras', 'inventario', 'corte', 'reportes'])
+      .filter((f) => { const c = this.$('#fn-' + f); return c && c.checked; });
+  },
+
+  async sugerirClaveEmpleado() {
+    try {
+      const r = await API.get('/empleados-clave-sugerida');
+      this.$('#em-pass').value = r.password;
+    } catch (e) { this.avisar(e.message, true); }
+  },
+
+  /* El acceso de un empleado, para volver a dictárselo. */
+  verAccesoEmpleado(id) {
+    const e = (this.state.empleados || []).find((x) => x.id === id);
+    if (!e) return;
+    this.$('#em-msg').innerHTML = `
+      <div class="tarjeta" style="margin-top:.7rem">
+        <b>Acceso de ${this.esc(e.nombre)}</b>
+        <div>Usuario: <b>${this.esc(e.usuario)}</b></div>
+        <div>Contraseña: <b>${e.password ? this.esc(e.password) : '— no guardada —'}</b></div>
+        ${e.password ? '' : '<p class="suave">Se puso antes de que el sistema guardara una copia. Ponle una nueva abajo y desde ahí ya se puede consultar.</p>'}
+        <p class="suave">No lo dejes a la vista de nadie más.</p>
+      </div>`;
+  },
+
+  /* Cambiarle las funciones o la contraseña a un empleado. */
+  async editarEmpleado(id) {
+    const e = (this.state.empleados || []).find((x) => x.id === id);
+    if (!e) return;
+    this.pintarFuncionesEmpleado(e.permisos);
+    this.$('#em-nombre').value = e.nombre;
+    this.$('#em-usuario').value = e.usuario;
+    this.$('#em-usuario').disabled = true;
+    this.$('#em-pass').value = '';
+    this.$('#em-pass').placeholder = 'contraseña nueva (opcional)';
+    this.$('#em-msg').innerHTML = `
+      <div class="fila" style="margin-top:.7rem">
+        <button class="btn chico" onclick="App.guardarEmpleado(${id})">Guardar cambios de ${this.esc(e.nombre)}</button>
+        <button class="btn chico gris" onclick="App.vistaConfig()">Cancelar</button>
+        <button class="btn chico gris" onclick="App.bajaEmpleado(${id})">Dar de baja</button>
+      </div>`;
+  },
+
+  async guardarEmpleado(id) {
+    try {
+      const cuerpo = { nombre: this.$('#em-nombre').value, permisos: this.funcionesMarcadas() };
+      if (this.$('#em-pass').value) cuerpo.password = this.$('#em-pass').value;
+      await API.put('/empleados/' + id, cuerpo);
+      this.avisar('Empleado actualizado');
+      this.vistaConfig();
+    } catch (e) { this.$('#em-msg').innerHTML = `<div class="msg-error">${this.esc(e.message)}</div>`; }
+  },
+
+  async bajaEmpleado(id) {
+    if (!confirm('¿Dar de baja a esta persona? Dejará de poder entrar de inmediato.')) return;
+    try {
+      await API.put('/empleados/' + id, { activo: false });
+      this.avisar('Empleado dado de baja');
+      this.vistaConfig();
+    } catch (e) { this.avisar(e.message, true); }
   },
 
   async guardarConfig() {
@@ -982,13 +1081,24 @@ const App = {
 
   async crearEmpleado() {
     try {
+      const clave = this.$('#em-pass').value;
       await API.post('/empleados', {
         nombre: this.$('#em-nombre').value,
         usuario: this.$('#em-usuario').value,
-        password: this.$('#em-pass').value
+        password: clave,
+        permisos: this.funcionesMarcadas()
       });
       this.avisar('Empleado creado');
-      this.vistaConfig();
+      const usuario = this.$('#em-usuario').value;
+      await this.vistaConfig();
+      // Se le enseña el acceso al dueño para que lo anote y se lo entregue.
+      this.$('#em-msg').innerHTML = `
+        <div class="tarjeta" style="margin-top:.7rem">
+          <b>Anota su acceso y entrégaselo</b>
+          <div>Usuario: <b>${this.esc(String(usuario).trim().toLowerCase())}</b></div>
+          <div>Contraseña: <b>${this.esc(clave)}</b></div>
+          <p class="suave">Él no la puede cambiar. Si se le olvida, aquí mismo la vuelves a ver.</p>
+        </div>`;
     } catch (e) { this.$('#em-msg').innerHTML = `<div class="msg-error">${this.esc(e.message)}</div>`; }
   },
 

@@ -13,7 +13,8 @@
  */
 const express = require('express');
 const { one, rows, query } = require('../db');
-const { estadoSuscripcion } = require('../suscripcion');
+const { estadoSuscripcion, corteEnDias } = require('../suscripcion');
+const { crearCatalogo } = require('../seed');
 const { confirmarPago, cobroManual, rechazarPago } = require('../pagos');
 const bcrypt = require('bcryptjs');
 const cred = require('../credenciales');
@@ -121,6 +122,55 @@ router.post('/pagos/manual', async (req, res) => {
     });
     res.json({ ok: true, ...r });
   } catch (e) { fallo(res, e, 'Error al registrar el cobro'); }
+});
+
+/* Alta de un cliente desde el panel de fundadores.
+   Crea la pollería con su catálogo base, su usuario dueño y su periodo de
+   prueba, y DEVUELVE la contraseña para poder entregársela. Es el mismo
+   contrato que usan las jarcerías, para que el panel dé de alta a los tres
+   giros con la misma pantalla. */
+router.post('/negocios', async (req, res) => {
+  try {
+    const b = req.body || {};
+    const codigo = String(b.codigo || '').trim().toUpperCase();
+    const nombre = String(b.nombre || '').trim();
+    if (!codigo || !nombre) return res.status(400).json({ error: 'Faltan la clave y el nombre del negocio' });
+    if (!/^[A-Z0-9_-]{2,24}$/.test(codigo)) {
+      return res.status(400).json({ error: 'La clave solo lleva letras, números, guion y guion bajo (2 a 24)' });
+    }
+    if (await one('SELECT id FROM negocios WHERE codigo = $1', [codigo])) {
+      return res.status(400).json({ error: `Ya existe un negocio con la clave "${codigo}"` });
+    }
+    // El usuario del dueño sale de la clave del negocio si no mandan uno.
+    const usuario = String(b.usuario || codigo).trim().toLowerCase();
+    if (await one('SELECT id FROM usuarios WHERE usuario = $1', [usuario])) {
+      return res.status(400).json({ error: `El usuario "${usuario}" ya existe` });
+    }
+    const password = String(b.password || '') || cred.claveLegible(10);
+    const dias = Math.min(Math.max(parseInt(b.dias_prueba, 10) || 0, 0), 365);
+
+    const neg = await one(
+      `INSERT INTO negocios (codigo, nombre, precio_mensual, estado, fecha_corte, dias_gracia,
+                             contacto_nombre, whatsapp_contacto, color_primario, logo)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,COALESCE($9,'#263949'),$10) RETURNING id`,
+      [codigo, nombre, Number(b.precio_mensual) || 0,
+       dias > 0 ? 'PRUEBA' : 'ACTIVA', corteEnDias(dias), Number(b.dias_gracia) || 5,
+       b.contacto_nombre || null, b.whatsapp_contacto || null,
+       b.color || null,
+       typeof b.logo === 'string' && /^data:image\/(png|jpeg|webp);base64,/.test(b.logo) ? b.logo : null]);
+
+    await query(
+      `INSERT INTO usuarios (negocio_id, nombre, usuario, hash, rol, clave_cifrada)
+       VALUES ($1,$2,$3,$4,'dueno',$5)`,
+      [neg.id, b.contacto_nombre || 'Dueño', usuario, bcrypt.hashSync(password, 10), cred.cifrar(password)]);
+    await crearCatalogo(neg.id, Number(b.peso_promedio_g) || 2500);
+
+    res.json({
+      ok: true,
+      negocio: { id: neg.id, codigo, nombre },
+      usuarios: [{ usuario, rol: 'dueno', password }],
+    });
+  } catch (e) { fallo(res, e, 'Error al dar de alta el negocio'); }
 });
 
 /* Los accesos de un cliente: quién entra a esa pollería y con qué

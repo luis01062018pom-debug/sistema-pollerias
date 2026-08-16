@@ -2,6 +2,8 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const { query, one, rows } = require('../db');
 const { requiereAuth, requiereRol } = require('../auth');
+const permisos = require('../permisos');
+const cred = require('../credenciales');
 const { estadoSuscripcion, mensajeSuscripcion, SUSPENDIDOS, SOLO_VENTA } = require('../suscripcion');
 const { seguro } = require('../asincrono');
 
@@ -73,6 +75,32 @@ const FUNCION_POR_RUTA = [
   [/^\/empleados/, 'empleados'],
   [/^\/piezas/, 'precios'],
 ];
+
+/**
+ * Quién es y qué puede hacer QUIEN ESTÁ CONECTADO.
+ *
+ * Se lee de la base en cada petición, no del pase de entrada, por dos
+ * razones: el pase dura 30 días y (1) si el dueño le quita una función a un
+ * empleado tiene que aplicarse hoy, no el mes que viene; (2) si lo da de
+ * baja, deja de entrar de inmediato — antes seguía trabajando con su pase
+ * viejo hasta que venciera.
+ */
+router.use(async (req, res, next) => {
+  if (!req.user.negocio_id) return next();          // el superadmin no pasa por aquí
+  const u = await one('SELECT rol, permisos, activo FROM usuarios WHERE id = $1', [req.user.uid]);
+  if (!u || !u.activo) return res.status(401).json({ error: 'Tu usuario ya no está activo. Habla con el dueño.' });
+  req.user.rol = u.rol;
+  req.user.permisos = permisos.permisosDe(u);
+  next();
+});
+
+/** Lo que no está marcado se rechaza aquí, no en la pantalla. */
+router.use((req, res, next) => {
+  if (!req.user.negocio_id) return next();
+  const funcion = permisos.funcionDeRuta(req.path);
+  if (!funcion || req.user.permisos.includes(funcion)) return next();
+  res.status(403).json({ error: 'Tu usuario no tiene permiso para eso. Habla con el dueño.' });
+});
 
 router.use(async (req, res, next) => {
   if (!req.user.negocio_id) return next();
@@ -413,18 +441,63 @@ router.post('/empleados', requiereRol('dueno'), async (req, res) => {
   const nid = negocioId(req, res); if (!nid) return;
   const { nombre, usuario, password } = req.body || {};
   if (!nombre || !usuario || !password) return res.status(400).json({ error: 'Nombre, usuario y contraseña requeridos' });
+  if (String(password).length < 6) return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres' });
   const existe = await one('SELECT id FROM usuarios WHERE usuario = $1', [String(usuario).trim().toLowerCase()]);
   if (existe) return res.status(400).json({ error: 'Ese nombre de usuario ya existe' });
+  // Se guarda la copia cifrada: el dueño tiene que poder volver a dictarle la
+  // contraseña a su empleado cuando se le olvide (que se le va a olvidar).
   await query(
-    `INSERT INTO usuarios (negocio_id, nombre, usuario, hash, rol) VALUES ($1,$2,$3,$4,'empleado')`,
-    [nid, nombre, String(usuario).trim().toLowerCase(), bcrypt.hashSync(password, 10)]);
+    `INSERT INTO usuarios (negocio_id, nombre, usuario, hash, rol, permisos, clave_cifrada)
+     VALUES ($1,$2,$3,$4,'empleado',$5,$6)`,
+    [nid, nombre, String(usuario).trim().toLowerCase(), bcrypt.hashSync(password, 10),
+     permisos.funcionesPedidas(req.body.permisos), cred.cifrar(password)]);
   res.json({ ok: true });
 });
 
 router.get('/empleados', requiereRol('dueno'), async (req, res) => {
   const nid = negocioId(req, res); if (!nid) return;
-  res.json(await rows(
-    `SELECT id, nombre, usuario, rol, activo FROM usuarios WHERE negocio_id = $1 ORDER BY rol, nombre`, [nid]));
+  const lista = await rows(
+    `SELECT id, nombre, usuario, rol, activo, permisos, clave_cifrada
+       FROM usuarios WHERE negocio_id = $1 ORDER BY rol, nombre`, [nid]);
+  res.json({
+    funciones: permisos.FUNCIONES,
+    empleados: lista.map((u) => ({
+      id: u.id, nombre: u.nombre, usuario: u.usuario, rol: u.rol, activo: u.activo,
+      permisos: permisos.permisosDe(u),
+      // La contraseña SOLO la ve el dueño, que es el único que llega aquí.
+      password: cred.descifrar(u.clave_cifrada),
+    })),
+  });
+});
+
+/** Cambiarle a un empleado sus funciones, su contraseña o darlo de baja. */
+router.put('/empleados/:id', requiereRol('dueno'), async (req, res) => {
+  const nid = negocioId(req, res); if (!nid) return;
+  const u = await one('SELECT id, rol FROM usuarios WHERE id = $1 AND negocio_id = $2',
+    [req.params.id, nid]);
+  if (!u) return res.status(404).json({ error: 'Ese usuario no es de tu negocio' });
+  if (Number(req.params.id) === Number(req.user.uid) && req.body.activo === false) {
+    return res.status(400).json({ error: 'No puedes darte de baja a ti mismo' });
+  }
+  const b = req.body || {};
+  if (b.nombre) await query('UPDATE usuarios SET nombre = $1 WHERE id = $2', [String(b.nombre).slice(0, 80), u.id]);
+  if (b.permisos !== undefined) {
+    await query('UPDATE usuarios SET permisos = $1 WHERE id = $2', [permisos.funcionesPedidas(b.permisos), u.id]);
+  }
+  if (b.activo !== undefined) {
+    await query('UPDATE usuarios SET activo = $1 WHERE id = $2', [!!b.activo, u.id]);
+  }
+  if (b.password) {
+    if (String(b.password).length < 6) return res.status(400).json({ error: 'La contraseña debe tener al menos 6 caracteres' });
+    await query('UPDATE usuarios SET hash = $1, clave_cifrada = $2 WHERE id = $3',
+      [bcrypt.hashSync(String(b.password), 10), cred.cifrar(String(b.password)), u.id]);
+  }
+  res.json({ ok: true });
+});
+
+/** Una contraseña sugerida, fácil de dictar por teléfono. */
+router.get('/empleados-clave-sugerida', requiereRol('dueno'), (req, res) => {
+  res.json({ password: cred.claveLegible(10) });
 });
 
 module.exports = router;

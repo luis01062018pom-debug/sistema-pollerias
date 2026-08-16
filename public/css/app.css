@@ -231,3 +231,12 @@ select {
   width: 100%; padding: .7rem; border: 1.5px solid var(--borde); border-radius: 10px;
   font-size: 1rem; background: #fff; color: var(--texto);
 }
+
+/* Empleados: funciones marcadas y renglón con sus acciones */
+.funciones-emp{display:grid; gap:.3rem; margin-top:.4rem}
+.funcion-emp{display:flex; align-items:center; gap:.55rem; padding:.45rem .6rem;
+  border:1px solid var(--borde,#d8d4cd); border-radius:9px; cursor:pointer; font-size:.95rem}
+.funcion-emp input{width:19px; height:19px}
+.renglon-emp{display:flex; justify-content:space-between; align-items:flex-start; gap:.6rem;
+  padding:.5rem 0; border-bottom:1px solid var(--borde,#e6e2db)}
+.acciones-emp{display:flex; gap:.3rem; flex-wrap:wrap}

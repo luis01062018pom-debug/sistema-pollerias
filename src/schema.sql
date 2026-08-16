@@ -203,3 +203,8 @@ CREATE INDEX IF NOT EXISTS idx_accesos_admin_fecha ON accesos_admin (fecha DESC)
    siendo bcrypt en la columna `hash`; esto es una segunda copia, y solo se
    descifra desde el panel de fundadores. */
 ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS clave_cifrada TEXT;
+
+/* Funciones marcadas para ESE usuario (JSON). Vacío = las que le tocan por su
+   puesto. El dueño decide qué puede hacer cada empleado; el servidor lo
+   revisa de verdad, no solo se esconde el botón. */
+ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS permisos TEXT;
