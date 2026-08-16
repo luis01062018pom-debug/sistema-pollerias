@@ -7,7 +7,8 @@
     "start": "node server.js",
     "dev": "node server.js",
     "prueba": "node prueba-suscripcion.js",
-    "probar-seguridad": "node pruebas-seguridad.js"
+    "probar-seguridad": "node pruebas-seguridad.js",
+    "carga": "node pruebas-carga.js"
   },
   "engines": {
     "node": ">=18"
