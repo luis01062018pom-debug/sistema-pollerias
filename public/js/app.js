@@ -67,6 +67,7 @@ const App = {
     // genérico, icono genérico y manifest genérico. La marca de la pollería
     // aparece al iniciar sesión, nunca en la puerta de entrada.
     if (!API.token) { this.marcaGenerica(); return this.vistaLogin(); }
+    API.asegurarNegocioDelAparato();
     try {
       const boot = await API.bootstrap();
       this.state.user = boot.user;
@@ -180,6 +181,7 @@ const App = {
     try {
       const r = await API.post('/login', { usuario, password });
       API.setToken(r.token);
+      API.asegurarNegocioDelAparato();
       await this.iniciar();
     } catch (e) {
       this.$('#lg-msg').innerHTML = `<div class="msg-error">${this.esc(e.message)}</div>`;

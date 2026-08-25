@@ -1,7 +1,7 @@
 /* Service worker: hace que la app abra sin internet y que abra RÁPIDO.
    Las llamadas /api nunca pasan por aquí: las ventas offline se encolan en la
    app (js/api.js), que es quien sabe cuáles ya subieron y cuáles no. */
-const CACHE = 'polleria-v11';
+const CACHE = 'polleria-v12';
 const ARCHIVOS = [
   '/', '/index.html', '/css/app.css', '/js/temas.js', '/js/api.js', '/js/app.js',
   '/manifest.json',

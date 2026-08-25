@@ -36,6 +36,47 @@ const ALM = {
 const API = {
   token: localStorage.getItem('token') || null,
 
+  /* De qué negocio es un token. Se lee del propio token (no es un dato
+     secreto: el servidor lo firma y lo vuelve a revisar en cada petición).
+     Sirve para saber si este aparato cambió de cliente. */
+  negocioDelToken(t) {
+    try {
+      const trozo = String(t || '').split('.')[1];
+      if (!trozo) return null;
+      const base = trozo.replace(/-/g, '+').replace(/_/g, '/');
+      const carga = JSON.parse(atob(base + '='.repeat((4 - base.length % 4) % 4)));
+      if (carga.negocio_id) return String(carga.negocio_id);
+      return carga.rol === 'superadmin' ? 'superadmin' : null;
+    } catch (e) { return null; }
+  },
+
+  /* Si en este aparato entra un negocio DISTINTO al de la última vez, todo lo
+     que quedó guardado es de otro cliente: catálogo, marca y ventas del día.
+     Sin esto, la pollería nueva abría con la cara y los datos de la anterior
+     (y peor: sin señal, el arranque guardado era el del negocio de antes). */
+  asegurarNegocioDelAparato() {
+    const nuevo = this.negocioDelToken(this.token);
+    if (!nuevo) return;
+    let anterior = null;
+    try {
+      anterior = localStorage.getItem('negocio_aparato');
+      // Aparato que viene de la versión anterior: no tiene marca, pero el
+      // arranque guardado dice de quién era.
+      if (!anterior) {
+        const g = ALM.leer('bootstrap', null);
+        if (g && g.negocio && g.negocio.id) anterior = String(g.negocio.id);
+      }
+    } catch (e) { return; }
+    if (anterior && anterior !== nuevo) {
+      ALM.borrar('bootstrap');
+      ALM.borrar('ventasLocales');
+      try {
+        for (const k of Object.keys(localStorage)) if (k.startsWith('cache:')) localStorage.removeItem(k);
+      } catch (e) {}
+    }
+    try { localStorage.setItem('negocio_aparato', nuevo); } catch (e) {}
+  },
+
   setToken(t) {
     this.token = t;
     if (t) localStorage.setItem('token', t);
@@ -219,7 +260,7 @@ const API = {
     } catch (e) {
       if (this.esDeRed(e) || e.status >= 500 || e.status === 402 || e.status === 401) {
         const cola = this._cola();
-        cola.push({ ...local, offline: true, intentos: 0 });
+        cola.push({ ...local, offline: true, intentos: 0, _negocio: this.negocioDelToken(this.token) });
         this._guardarCola(cola);
         return { ok: true, online: false, encolada: true };
       }
@@ -238,7 +279,12 @@ const API = {
     try {
       let cola = this._cola();
       let enviadas = 0;
-      for (const venta of [...cola]) {
+      // Una venta guardada sin internet se sube al negocio en el que se hizo,
+      // nunca al que esté usando el aparato ahora. (Las de antes de esta
+      // versión no traen marca: se toman como del negocio actual.)
+      const miNegocio = this.negocioDelToken(this.token);
+      const deEsteNegocio = (v) => !v._negocio || !miNegocio || v._negocio === miNegocio;
+      for (const venta of cola.filter(deEsteNegocio)) {
         try {
           await this.post('/ventas', venta, { silencioso: true });
           this._marcarSubida(venta.uuid);
