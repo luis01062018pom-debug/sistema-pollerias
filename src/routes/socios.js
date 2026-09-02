@@ -12,7 +12,7 @@
  * puesta, estas rutas simplemente no existen.
  */
 const express = require('express');
-const { one, rows, query } = require('../db');
+const { one, rows, query, transaccion } = require('../db');
 const { estadoSuscripcion, corteEnDias } = require('../suscripcion');
 const { crearCatalogo } = require('../seed');
 const { confirmarPago, cobroManual, rechazarPago } = require('../pagos');
@@ -206,6 +206,77 @@ router.post('/negocios/:id/usuarios/:uid/clave', async (req, res) => {
       [bcrypt.hashSync(nueva, 10), cred.cifrar(nueva), u.id]);
     res.json({ ok: true, usuario: u.usuario, password: nueva });
   } catch (e) { fallo(res, e, 'Error al cambiar la contraseña'); }
+});
+
+/* Borrar un negocio de PRUEBA, de verdad.
+ *
+ * Ojo con la diferencia: a un cliente real que se va se le pone estado
+ * CANCELADA y se conserva todo, porque lo que nos pagó es la contabilidad
+ * del negocio. Esto es lo otro: las pollerías de prueba que damos de alta
+ * mientras armamos el sistema y que no queremos cargar para siempre.
+ *
+ * Pide DOS confirmaciones —el nombre tal cual y la palabra BORRAR— y se
+ * revisan aquí, que es donde se sabe cómo se llama de verdad ese negocio.
+ *
+ * Las tablas no se listan a mano: se le preguntan a la base (todas las que
+ * tienen columna negocio_id), y como unas dependen de otras se dan varias
+ * vueltas hasta que ya no queda nada. Así, el día que se agregue una tabla
+ * nueva, también se limpia. Todo en una transacción: o se va completo o no
+ * se toca nada.
+ */
+router.delete('/negocios/:id', async (req, res) => {
+  try {
+    const n = await one('SELECT id, nombre FROM negocios WHERE id = $1', [req.params.id]);
+    if (!n) return res.status(404).json({ error: 'Ese negocio no existe' });
+
+    const escrito = String((req.body || {}).confirmacion || '').trim().toLowerCase();
+    if (escrito !== String(n.nombre).trim().toLowerCase()) {
+      return res.status(400).json({ error: `Para borrarlo, escribe su nombre tal cual: ${n.nombre}` });
+    }
+    if (String((req.body || {}).confirmacion2 || '').trim().toUpperCase() !== 'BORRAR') {
+      return res.status(400).json({ error: 'Falta la segunda confirmación: escribe BORRAR' });
+    }
+
+    const tablas = (await rows(
+      `SELECT c.table_name AS tabla
+         FROM information_schema.columns c
+         JOIN information_schema.tables t
+           ON t.table_schema = c.table_schema AND t.table_name = c.table_name
+        WHERE c.table_schema = 'public' AND c.column_name = 'negocio_id'
+          AND t.table_type = 'BASE TABLE'`)).map((r) => r.tabla)
+      .filter((t) => /^[a-z0-9_]+$/.test(t));
+
+    const borrado = await transaccion(async (cx) => {
+      let pendientes = tablas;
+      const cuenta = {};
+      for (let vuelta = 0; vuelta < 12 && pendientes.length; vuelta++) {
+        const atoradas = [];
+        for (const tabla of pendientes) {
+          await cx.query('SAVEPOINT limpieza');
+          try {
+            const r = await cx.query(`DELETE FROM "${tabla}" WHERE negocio_id = $1`, [n.id]);
+            await cx.query('RELEASE SAVEPOINT limpieza');
+            if (r.rowCount) cuenta[tabla] = (cuenta[tabla] || 0) + r.rowCount;
+          } catch (e) {
+            await cx.query('ROLLBACK TO SAVEPOINT limpieza');
+            if (e.code !== '23503') throw e;   // 23503 = todavía lo referencia alguien
+            atoradas.push(tabla);
+          }
+        }
+        if (atoradas.length === pendientes.length) {
+          const err = new Error('Hay datos enlazados que no se pudieron borrar. No se borró nada.');
+          err.status = 409;
+          throw err;
+        }
+        pendientes = atoradas;
+      }
+      await cx.query('DELETE FROM negocios WHERE id = $1', [n.id]);
+      return cuenta;
+    });
+
+    console.log(`🗑  Pollería "${n.nombre}" borrada desde el panel:`, JSON.stringify(borrado));
+    res.json({ ok: true, nombre: n.nombre, borrado });
+  } catch (e) { fallo(res, e, 'Error al borrar el negocio'); }
 });
 
 module.exports = router;
