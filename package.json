@@ -4,7 +4,7 @@
   "description": "Sistema multi-negocio para pollerías: punto de venta, despiece automático, inventario y corte de caja",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
+    "start": "node --max-semi-space-size=2 server.js",
     "dev": "node server.js",
     "prueba": "node prueba-suscripcion.js",
     "probar-seguridad": "node pruebas-seguridad.js",
