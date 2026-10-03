@@ -223,3 +223,10 @@ CREATE TABLE IF NOT EXISTS respaldos_negocios (
   clave          TEXT,
   error          TEXT
 );
+
+/* Índices para buscar las partidas y el despiece de UNA pollería sin
+   recorrer la tabla completa (respaldo nocturno, borrado y reportes). Con 30
+   pollerías y años de ventas, venta_items es la tabla que más crece. */
+CREATE INDEX IF NOT EXISTS idx_venta_items_pieza ON venta_items (pieza_id);
+CREATE INDEX IF NOT EXISTS idx_compra_despiece_compra ON compra_despiece (compra_id);
+CREATE INDEX IF NOT EXISTS idx_compra_despiece_pieza ON compra_despiece (pieza_id);

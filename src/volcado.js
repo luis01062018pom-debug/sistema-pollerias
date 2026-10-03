@@ -21,7 +21,7 @@
 const zlib = require('zlib');
 const crypto = require('crypto');
 
-const POR_TANDA = 2000;
+const POR_TANDA = 500;
 const J = (v) => JSON.stringify(v);
 const NOMBRE_SEGURO = /^[a-z0-9_]+$/;
 // Las bitácoras de respaldos no son datos de ningún negocio (y la de
