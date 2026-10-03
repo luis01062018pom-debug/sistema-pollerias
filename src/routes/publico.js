@@ -41,7 +41,9 @@ router.get('/manifest/:codigo', async (req, res) => {
       name: n.nombre,
       short_name: String(n.nombre).slice(0, 12),
       description: 'Punto de venta, despiece, inventario y corte de caja',
-      start_url: '/',
+      // Abre directo en SU pollería: la entrada sale con su marca aunque el
+      // navegador haya olvidado lo guardado.
+      start_url: '/?negocio=' + encodeURIComponent(n.codigo),
       scope: '/',
       display: 'standalone',
       display_override: ['standalone', 'minimal-ui'],
@@ -57,10 +59,28 @@ router.get('/manifest/:codigo', async (req, res) => {
         { src: icono512, sizes: '512x512', type: 'image/png', purpose: 'maskable' },
       ],
       shortcuts: [
-        { name: 'Vender', url: '/?ir=vender' },
-        { name: 'Corte de caja', url: '/?ir=corte' },
+        { name: 'Vender', url: '/?ir=vender&negocio=' + encodeURIComponent(n.codigo) },
+        { name: 'Corte de caja', url: '/?ir=corte&negocio=' + encodeURIComponent(n.codigo) },
       ],
     });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: 'Error del servidor' });
+  }
+});
+
+/* Lo que pinta la pantalla de entrada cuando el cliente abre SU liga
+   (/?negocio=CLAVE): nombre, colores y si tiene icono. Nada más. Con esto, si
+   instala la app antes de entrar, se instala con su logo y no con el nuestro. */
+router.get('/marca/:codigo', async (req, res) => {
+  try {
+    const n = await one(
+      `SELECT codigo, nombre, color_primario, color_secundario, color_acento, color_fondo,
+              (icono_192 IS NOT NULL) AS tiene_iconos
+         FROM negocios WHERE codigo = $1 AND activo = TRUE`, [limpiaCodigo(req.params.codigo)]);
+    if (!n) return res.status(404).json({ error: 'Negocio no encontrado' });
+    res.set('Cache-Control', 'public, max-age=300');
+    res.json({ ok: true, marca: n });
   } catch (e) {
     console.error(e);
     res.status(500).json({ error: 'Error del servidor' });

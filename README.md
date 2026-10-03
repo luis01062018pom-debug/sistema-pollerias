@@ -53,6 +53,13 @@ autenticado con el token compartido `SOCIOS_TOKEN`. Desde ahí se ven los
 clientes, su renta y sus comprobantes, y se aprueban sin cambiar de página.
 Si la variable no está puesta, el puente no existe.
 
+## Respaldos (fuera del servidor)
+
+Cada pollería se respalda sola, cifrada, todos los días de madrugada en la nube de
+respaldos (Cloudflare R2). Para activarlo hay que poner las variables `NUBE_*`.
+Todo el detalle —cómo configurarlo, revisarlo y restaurar UNA pollería sin tocar
+a las demás (`npm run restaurar-negocio`)— está en [RESPALDOS.md](RESPALDOS.md).
+
 ## Despliegue en Railway
 
 1. Sube este folder a un repo de GitHub y créale un servicio en Railway.

@@ -87,6 +87,8 @@ process.on('uncaughtException', (e) => console.error('[excepción suelta]', e));
   try {
     await db.init();
     await seed();
+    // Respaldo diario de cada pollería, cifrado y FUERA del servidor.
+    require('./src/respaldo').programar();
     const servidor = app.listen(PORT, () =>
       console.log('Sistema de pollerías escuchando en http://localhost:' + PORT));
 

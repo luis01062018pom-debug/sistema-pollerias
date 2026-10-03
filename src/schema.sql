@@ -208,3 +208,18 @@ ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS clave_cifrada TEXT;
    puesto. El dueño decide qué puede hacer cada empleado; el servidor lo
    revisa de verdad, no solo se esconde el botón. */
 ALTER TABLE usuarios ADD COLUMN IF NOT EXISTS permisos TEXT;
+
+/* Bitácora del respaldo de CADA pollería fuera del servidor (src/respaldo.js).
+   El archivo vive en la nube de respaldos, no aquí: esto solo anota cuándo
+   salió el último, cuánto pesó y si falló, para enseñarlo en el panel. */
+CREATE TABLE IF NOT EXISTS respaldos_negocios (
+  negocio_id     TEXT PRIMARY KEY,
+  ultimo_intento TIMESTAMPTZ,
+  ultimo_exito   TIMESTAMPTZ,
+  ultima_subida  TIMESTAMPTZ,
+  tamano         BIGINT,
+  filas          INTEGER,
+  huella         TEXT,
+  clave          TEXT,
+  error          TEXT
+);

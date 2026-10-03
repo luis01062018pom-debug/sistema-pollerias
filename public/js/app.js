@@ -64,9 +64,11 @@ const App = {
   /* ===== Arranque ===== */
   async iniciar() {
     // Antes de entrar, la app es del SISTEMA, no de ningún cliente: nombre
-    // genérico, icono genérico y manifest genérico. La marca de la pollería
-    // aparece al iniciar sesión, nunca en la puerta de entrada.
-    if (!API.token) { this.marcaGenerica(); return this.vistaLogin(); }
+    // genérico, icono genérico y manifest genérico. La única excepción es
+    // abrir la liga de UNA pollería (/?negocio=CLAVE): esa sale con su marca,
+    // para que al instalarla desde ahí quede con su logo. No se recuerda:
+    // sin la liga, la entrada vuelve a ser la genérica.
+    if (!API.token) { await this.marcaDeLaLiga(); return this.vistaLogin(); }
     API.asegurarNegocioDelAparato();
     try {
       const boot = await API.bootstrap();
@@ -104,6 +106,22 @@ const App = {
   vistaDelAtajo() {
     const v = new URLSearchParams(location.search).get('ir');
     return ['vender', 'corte', 'compras', 'inventario'].includes(v) ? v : null;
+  },
+
+  async marcaDeLaLiga() {
+    this.state.marcaLiga = null;
+    const codigo = (new URLSearchParams(location.search).get('negocio') || '').trim().toUpperCase();
+    if (!/^[A-Z0-9_-]{2,24}$/.test(codigo)) return this.marcaGenerica();
+    try {
+      const r = await fetch('/api/publico/marca/' + encodeURIComponent(codigo));
+      if (!r.ok) return this.marcaGenerica();
+      const n = (await r.json()).marca;
+      this.marcaGenerica();
+      this.aplicarMarca(n);
+      this.state.marcaLiga = n;
+    } catch (e) {
+      this.marcaGenerica();   // sin internet: la entrada genérica sirve igual
+    }
   },
 
   /* Deja la app con la cara del sistema: la de la pantalla de entrada. */
@@ -151,7 +169,11 @@ const App = {
     document.getElementById('app').innerHTML = `
       <div class="login-wrap"><div class="login-caja">
         <div class="marca">
-          <img class="logo-marca ancho" src="icons/logo-horizontal.svg?v=2" alt="Sistema Pollerías">
+          ${this.state.marcaLiga ? `
+            ${this.state.marcaLiga.tiene_iconos ? `<img class="logo-marca" style="width:84px;height:84px;border-radius:18px;background:#fff"
+               src="/api/publico/icono/${encodeURIComponent(this.state.marcaLiga.codigo)}/192.png" alt="">` : ''}
+            <h2 style="margin:.4rem 0 0">${this.esc(this.state.marcaLiga.nombre)}</h2>`
+          : '<img class="logo-marca ancho" src="icons/logo-horizontal.svg?v=2" alt="Sistema Pollerías">'}
         </div>
         ${pendientes > 0 ? `<div class="cinta">Tienes ${pendientes} venta(s) guardadas en este equipo.
            Entra para que se suban.</div>` : ''}

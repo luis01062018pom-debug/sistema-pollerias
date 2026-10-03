@@ -33,7 +33,7 @@ function requiereAuth(req, res, next) {
   const token = h.startsWith('Bearer ') ? h.slice(7) : null;
   if (!token) return res.status(401).json({ error: 'Sesión requerida' });
   try {
-    req.user = jwt.verify(token, SECRET);
+    req.user = jwt.verify(token, SECRET, { algorithms: ['HS256'] });
     next();
   } catch (e) {
     return res.status(401).json({ error: 'Sesión inválida o expirada' });

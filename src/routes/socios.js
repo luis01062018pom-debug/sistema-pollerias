@@ -34,6 +34,22 @@ router.use((req, res, next) => {
   next();
 });
 
+/* Lo que llega como imagen se revisa aquí: se va a servir tal cual al
+   teléfono del cliente cuando instale la app. Nada de SVG (puede traer
+   código) y nada que pese más de lo que ocupa un logo de verdad. */
+const LIMITE_IMAGEN = 600 * 1024;
+function imagenValida(v) {
+  return typeof v === 'string' && v.length <= LIMITE_IMAGEN
+    && /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(v) ? v : null;
+}
+function pngValido(v) {
+  return typeof v === 'string' && v.length <= LIMITE_IMAGEN
+    && /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(v) ? v : null;
+}
+function colorValido(v) {
+  return typeof v === 'string' && /^#[0-9a-f]{6}$/i.test(v) ? v : null;
+}
+
 function fallo(res, e, mensaje) {
   if (e && e.status) return res.status(e.status).json({ error: e.message });
   console.error(e);
@@ -46,6 +62,7 @@ router.get('/resumen', async (req, res) => {
     const negocios = await rows(
       `SELECT n.id, n.codigo, n.nombre, n.activo, n.estado, n.fecha_corte, n.dias_gracia,
               n.precio_mensual::float8 AS precio_mensual, n.contacto_nombre, n.whatsapp_contacto, n.creado_en,
+              n.notas_internas AS notas,
               (SELECT COUNT(*)::int FROM usuarios u WHERE u.negocio_id = n.id) AS usuarios,
               (SELECT COUNT(*)::int FROM ventas v WHERE v.negocio_id = n.id
                  AND v.fecha >= date_trunc('month', now())) AS ventas_mes,
@@ -149,15 +166,19 @@ router.post('/negocios', async (req, res) => {
     const password = String(b.password || '') || cred.claveLegible(10);
     const dias = Math.min(Math.max(parseInt(b.dias_prueba, 10) || 0, 0), 365);
 
+    // Los iconos (192 y 512) son los que usa el teléfono al instalar la app.
+    // Antes el alta solo guardaba el logo y la pollería se instalaba con el
+    // icono genérico hasta que alguien la editaba a mano.
     const neg = await one(
       `INSERT INTO negocios (codigo, nombre, precio_mensual, estado, fecha_corte, dias_gracia,
-                             contacto_nombre, whatsapp_contacto, color_primario, logo)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,COALESCE($9,'#263949'),$10) RETURNING id`,
+                             contacto_nombre, whatsapp_contacto, color_primario, logo,
+                             icono_192, icono_512)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,COALESCE($9,'#263949'),$10,$11,$12) RETURNING id`,
       [codigo, nombre, Number(b.precio_mensual) || 0,
        dias > 0 ? 'PRUEBA' : 'ACTIVA', corteEnDias(dias), Number(b.dias_gracia) || 5,
        b.contacto_nombre || null, b.whatsapp_contacto || null,
-       b.color || null,
-       typeof b.logo === 'string' && /^data:image\/(png|jpeg|webp);base64,/.test(b.logo) ? b.logo : null]);
+       colorValido(b.color),
+       imagenValida(b.logo), pngValido(b.icono_192), pngValido(b.icono_512)]);
 
     await query(
       `INSERT INTO usuarios (negocio_id, nombre, usuario, hash, rol, clave_cifrada)
@@ -171,6 +192,84 @@ router.post('/negocios', async (req, res) => {
       usuarios: [{ usuario, rol: 'dueno', password }],
     });
   } catch (e) { fallo(res, e, 'Error al dar de alta el negocio'); }
+});
+
+/* La marca de un cliente: nombre, color, logo y leyenda del ticket.
+   La manejamos NOSOTROS desde el panel de fundadores —igual que en tiendas y
+   jarcerías—; el dueño ve el resultado pero no lo edita. */
+router.get('/negocios/:id/marca', async (req, res) => {
+  try {
+    const n = await one(
+      `SELECT id, codigo, nombre, color_primario, ticket_leyenda, logo,
+              (icono_192 IS NOT NULL) AS tiene_iconos
+         FROM negocios WHERE id = $1`, [req.params.id]);
+    if (!n) return res.status(404).json({ error: 'Ese negocio no existe' });
+    res.json({
+      ok: true,
+      marca: {
+        nombre_negocio: n.nombre, color: n.color_primario, mensaje_ticket: n.ticket_leyenda,
+        logo: n.logo || (n.tiene_iconos ? `/api/publico/icono/${encodeURIComponent(n.codigo)}/512.png` : ''),
+      },
+    });
+  } catch (e) { fallo(res, e, 'Error al leer la marca'); }
+});
+
+router.put('/negocios/:id/marca', async (req, res) => {
+  try {
+    const b = req.body || {};
+    const n = await one('SELECT id FROM negocios WHERE id = $1', [req.params.id]);
+    if (!n) return res.status(404).json({ error: 'Ese negocio no existe' });
+    const nombre = b.nombre_negocio === undefined ? null : String(b.nombre_negocio).trim().slice(0, 80);
+    if (nombre === '') return res.status(400).json({ error: 'El nombre no puede quedar vacío' });
+    if (b.logo && !imagenValida(b.logo)) return res.status(400).json({ error: 'Esa imagen no se puede usar como logo' });
+    const quitar = b.logo === '';
+    await query(
+      `UPDATE negocios SET
+         nombre = COALESCE($1, nombre),
+         color_primario = COALESCE($2, color_primario),
+         ticket_leyenda = COALESCE($3, ticket_leyenda),
+         logo      = CASE WHEN $7::boolean THEN NULL ELSE COALESCE($4, logo) END,
+         icono_192 = CASE WHEN $7::boolean THEN NULL ELSE COALESCE($5, icono_192) END,
+         icono_512 = CASE WHEN $7::boolean THEN NULL ELSE COALESCE($6, icono_512) END
+       WHERE id = $8`,
+      [nombre, colorValido(b.color),
+       b.mensaje_ticket === undefined ? null : String(b.mensaje_ticket).slice(0, 120),
+       imagenValida(b.logo), pngValido(b.icono_192), pngValido(b.icono_512), quitar, n.id]);
+    res.json({ ok: true });
+  } catch (e) { fallo(res, e, 'Error al guardar la marca'); }
+});
+
+/* Los datos del contrato: contacto, renta, fecha de corte y notas. Con
+   `baja: true` se da de baja a un cliente REAL que se va: deja de entrar,
+   pero sus ventas y lo que nos pagó se conservan (no es borrar). */
+router.put('/negocios/:id', async (req, res) => {
+  try {
+    const b = req.body || {};
+    const n = await one('SELECT id FROM negocios WHERE id = $1', [req.params.id]);
+    if (!n) return res.status(404).json({ error: 'Ese negocio no existe' });
+    const fecha = b.fecha_corte === undefined || b.fecha_corte === null || b.fecha_corte === ''
+      ? null : String(b.fecha_corte);
+    if (fecha && !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return res.status(400).json({ error: 'Fecha de corte inválida' });
+    const numero = (v, min, max) => (v === undefined || v === null || v === ''
+      ? null : Math.min(Math.max(Number(v) || 0, min), max));
+    await query(
+      `UPDATE negocios SET
+         contacto_nombre   = COALESCE($1, contacto_nombre),
+         whatsapp_contacto = COALESCE($2, whatsapp_contacto),
+         precio_mensual    = COALESCE($3, precio_mensual),
+         fecha_corte       = COALESCE($4::date, fecha_corte),
+         dias_gracia       = COALESCE($5, dias_gracia),
+         notas_internas    = COALESCE($6, notas_internas),
+         estado = CASE WHEN $7::boolean THEN 'CANCELADA' ELSE estado END,
+         activo = CASE WHEN $7::boolean THEN FALSE ELSE activo END
+       WHERE id = $8`,
+      [b.contacto_nombre === undefined ? null : String(b.contacto_nombre).slice(0, 80),
+       b.whatsapp_contacto === undefined ? null : String(b.whatsapp_contacto).replace(/[^\d+]/g, '').slice(0, 20),
+       numero(b.precio_mensual, 0, 100000), fecha, numero(b.dias_gracia, 0, 60),
+       b.notas === undefined ? null : String(b.notas).slice(0, 500),
+       b.baja === true, n.id]);
+    res.json({ ok: true });
+  } catch (e) { fallo(res, e, 'Error al guardar los datos'); }
 });
 
 /* Los accesos de un cliente: quién entra a esa pollería y con qué
@@ -237,46 +336,64 @@ router.delete('/negocios/:id', async (req, res) => {
       return res.status(400).json({ error: 'Falta la segunda confirmación: escribe BORRAR' });
     }
 
-    const tablas = (await rows(
-      `SELECT c.table_name AS tabla
-         FROM information_schema.columns c
-         JOIN information_schema.tables t
-           ON t.table_schema = c.table_schema AND t.table_name = c.table_name
-        WHERE c.table_schema = 'public' AND c.column_name = 'negocio_id'
-          AND t.table_type = 'BASE TABLE'`)).map((r) => r.tabla)
-      .filter((t) => /^[a-z0-9_]+$/.test(t));
-
+    // Las tablas salen de la base (las que tienen negocio_id y TAMBIÉN sus
+    // hijas, como las partidas de una venta o el despiece de una compra, que
+    // no tienen la columna). Antes solo se buscaban las primeras y borrar una
+    // pollería que ya había vendido fallaba siempre: sus partidas amarraban
+    // a las ventas. Se recorren de hijas a madres.
+    const { tablasDelNegocio, ordenarPorDependencias } = require('../volcado');
     const borrado = await transaccion(async (cx) => {
-      let pendientes = tablas;
+      const tablas = await tablasDelNegocio(cx, { raiz: 'negocios', columna: 'negocio_id' });
+      const { rows: fks } = await cx.query(
+        `SELECT tc.table_name AS hija, ccu.table_name AS padre
+           FROM information_schema.table_constraints tc
+           JOIN information_schema.constraint_column_usage ccu
+             ON ccu.constraint_name = tc.constraint_name AND ccu.table_schema = tc.table_schema
+          WHERE tc.constraint_type = 'FOREIGN KEY' AND tc.table_schema = 'public'`);
+      const orden = ordenarPorDependencias(tablas.map((t) => t.tabla), fks).reverse();
       const cuenta = {};
-      for (let vuelta = 0; vuelta < 12 && pendientes.length; vuelta++) {
-        const atoradas = [];
-        for (const tabla of pendientes) {
-          await cx.query('SAVEPOINT limpieza');
-          try {
-            const r = await cx.query(`DELETE FROM "${tabla}" WHERE negocio_id = $1`, [n.id]);
-            await cx.query('RELEASE SAVEPOINT limpieza');
-            if (r.rowCount) cuenta[tabla] = (cuenta[tabla] || 0) + r.rowCount;
-          } catch (e) {
-            await cx.query('ROLLBACK TO SAVEPOINT limpieza');
-            if (e.code !== '23503') throw e;   // 23503 = todavía lo referencia alguien
-            atoradas.push(tabla);
-          }
-        }
-        if (atoradas.length === pendientes.length) {
-          const err = new Error('Hay datos enlazados que no se pudieron borrar. No se borró nada.');
-          err.status = 409;
-          throw err;
-        }
-        pendientes = atoradas;
+      for (const nombre of orden) {
+        const t = tablas.find((x) => x.tabla === nombre);
+        const r = await cx.query(`DELETE FROM "${t.tabla}" WHERE ${t.donde.replace(/\$ID/g, String(Number(n.id)))}`);
+        const cuantos = Number(r.rowCount ?? r.affectedRows ?? 0);
+        if (cuantos) cuenta[t.tabla] = cuantos;
       }
-      await cx.query('DELETE FROM negocios WHERE id = $1', [n.id]);
       return cuenta;
     });
 
     console.log(`🗑  Pollería "${n.nombre}" borrada desde el panel:`, JSON.stringify(borrado));
     res.json({ ok: true, nombre: n.nombre, borrado });
   } catch (e) { fallo(res, e, 'Error al borrar el negocio'); }
+});
+
+/* ── Respaldos de cada pollería (fuera del servidor) ──
+   El panel de fundadores enseña aquí si cada pollería tiene su copia del día
+   en la nube, puede pedir una al momento y bajar la última. */
+const respaldo = require('../respaldo');
+const nube = require('../nube');
+
+router.get('/respaldos', async (req, res) => {
+  try {
+    res.json({ ok: true, nube_configurada: nube.configurada(), falta: nube.queFalta(), negocios: await respaldo.estado() });
+  } catch (e) { fallo(res, e, 'Error al leer los respaldos'); }
+});
+
+router.post('/respaldos/:id', async (req, res) => {
+  try {
+    if (!nube.configurada()) return res.status(503).json({ error: 'La nube de respaldos no está configurada' });
+    res.json(await respaldo.respaldarNegocio(Number(req.params.id), { forzar: true }));
+  } catch (e) { fallo(res, e, 'Error al respaldar'); }
+});
+
+router.get('/respaldos/:id/ultimo', async (req, res) => {
+  try {
+    if (!nube.configurada()) return res.status(503).json({ error: 'La nube de respaldos no está configurada' });
+    const lista = await nube.respaldosDe('polleria', String(Number(req.params.id)));
+    if (!lista.length) return res.status(404).json({ error: 'Esa pollería todavía no tiene respaldo en la nube' });
+    res.set('Content-Type', 'application/octet-stream');
+    res.set('Cache-Control', 'private, no-store');
+    res.send(await nube.bajar(lista[0].clave));
+  } catch (e) { fallo(res, e, 'Error al bajar el respaldo'); }
 });
 
 module.exports = router;
